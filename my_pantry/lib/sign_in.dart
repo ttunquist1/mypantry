@@ -1,5 +1,5 @@
-import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 
 class SignInPage extends StatefulWidget {
   const SignInPage({super.key});
@@ -11,23 +11,53 @@ class SignInPage extends StatefulWidget {
 class _SignInPageState extends State<SignInPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+
   bool _obscurePassword = true;
+  bool _isSubmitting = false;
+
   Future<void> _signIn() async {
+    if (_isSubmitting) {
+      return;
+    }
+
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+    if (email.isEmpty || password.isEmpty) {
+      _showMessage('Email and password are required.');
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
     try {
       await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
+        email: email,
+        password: password,
       );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Signed in successfully!')),
-      );
-      Navigator.pushNamed(context, '/pantry');
+
+      if (!mounted) {
+        return;
+      }
+
+      _showMessage('Signed in successfully!');
+      Navigator.pushNamedAndRemoveUntil(context, '/homepager', (route) => false);
+    } on FirebaseAuthException catch (e) {
+      _showMessage(e.message ?? 'Unable to sign in.');
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString()}')),
-      );
+      _showMessage('Error: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
     }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -40,18 +70,20 @@ class _SignInPageState extends State<SignInPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Sign In")),
+      appBar: AppBar(title: const Text('Sign In')),
       body: Padding(
-        padding: const EdgeInsets.all(20.0),
+        padding: const EdgeInsets.all(20),
         child: Column(
           children: [
             TextField(
-              autofillHints: [AutofillHints.email],
+              autofillHints: const [AutofillHints.email],
               controller: _emailController,
               decoration: const InputDecoration(labelText: 'Email'),
+              keyboardType: TextInputType.emailAddress,
+              textInputAction: TextInputAction.next,
             ),
             TextField(
-              autofillHints: [AutofillHints.password],
+              autofillHints: const [AutofillHints.password],
               controller: _passwordController,
               obscureText: _obscurePassword,
               decoration: InputDecoration(
@@ -69,7 +101,16 @@ class _SignInPageState extends State<SignInPage> {
               ),
             ),
             const SizedBox(height: 20),
-            ElevatedButton(onPressed: _signIn, child: const Text("Sign In")),
+            ElevatedButton(
+              onPressed: _isSubmitting ? null : _signIn,
+              child: _isSubmitting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Sign In'),
+            ),
             TextButton(
               onPressed: () {
                 Navigator.pushNamed(context, '/sign_up');

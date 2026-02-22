@@ -1,7 +1,6 @@
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:my_pantry/pantry.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 
 class SignUpPage extends StatefulWidget {
   const SignUpPage({super.key});
@@ -15,46 +14,70 @@ class _SignUpPageState extends State<SignUpPage> {
   final _passwordController = TextEditingController();
   final _nameController = TextEditingController();
 
+  bool _isSubmitting = false;
+
   Future<void> _signUp() async {
+    if (_isSubmitting) {
+      return;
+    }
+
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+    final name = _nameController.text.trim();
+
+    if (name.isEmpty || email.isEmpty || password.isEmpty) {
+      _showMessage('Name, email, and password are required.');
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
     try {
-      // Create user with email and password
-      UserCredential userCred = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(
-              email: _emailController.text.trim(),
-              password: _passwordController.text.trim());
+      final userCred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
 
       final user = userCred.user;
-      final uid = user!.uid;
+      if (user == null) {
+        throw StateError('Account was created without a user session.');
+      }
 
-      // ✅ Update the display name in FirebaseAuth
-      await user.updateDisplayName(_nameController.text.trim());
-      await user.reload(); // Refresh local user instance
+      await user.updateDisplayName(name);
+      await user.reload();
 
-      // ✅ Create user document in Firestore
-      await FirebaseFirestore.instance.collection('users').doc(uid).set({
-        'name': _nameController.text.trim(),
-        'email': _emailController.text.trim(),
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        'name': name,
+        'email': email,
         'createdAt': FieldValue.serverTimestamp(),
-        'friends': [], // List of user IDs
-        'pantrySharingWith': [], // List of user IDs they share their pantry with
-        'friendCode': uid.substring(0, 6), // Or generate a unique short code
-      }); 
+        'friends': <String>[],
+        'pantrySharingWith': <String>[],
+        'friendCode': user.uid.length >= 6 ? user.uid.substring(0, 6) : user.uid,
+      });
 
+      if (!mounted) {
+        return;
+      }
 
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sign up successful!')),
-      );
-
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const PantryPage()),
-      );
+      _showMessage('Sign up successful!');
+      Navigator.pushNamedAndRemoveUntil(context, '/homepager', (route) => false);
+    } on FirebaseAuthException catch (e) {
+      _showMessage(e.message ?? 'Unable to sign up.');
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString()}')),
-      );
+      _showMessage('Error: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
     }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -68,39 +91,46 @@ class _SignUpPageState extends State<SignUpPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Sign Up")),
+      appBar: AppBar(title: const Text('Sign Up')),
       body: Padding(
-        padding: const EdgeInsets.all(20.0),
+        padding: const EdgeInsets.all(20),
         child: Column(
           children: [
             TextField(
-              autofillHints: [AutofillHints.name],
+              autofillHints: const [AutofillHints.name],
               controller: _nameController,
               decoration: const InputDecoration(labelText: 'Name'),
               textInputAction: TextInputAction.next,
             ),
             TextField(
-              autofillHints: [AutofillHints.email],
+              autofillHints: const [AutofillHints.email],
               controller: _emailController,
               decoration: const InputDecoration(labelText: 'Email'),
+              keyboardType: TextInputType.emailAddress,
               textInputAction: TextInputAction.next,
             ),
             TextField(
-              autofillHints: [AutofillHints.newPassword],
+              autofillHints: const [AutofillHints.newPassword],
               controller: _passwordController,
               decoration: const InputDecoration(labelText: 'Password'),
               obscureText: true,
             ),
             const SizedBox(height: 20),
             ElevatedButton(
-              onPressed: _signUp,
-              child: const Text("Sign Up"),
+              onPressed: _isSubmitting ? null : _signUp,
+              child: _isSubmitting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Sign Up'),
             ),
             TextButton(
               onPressed: () {
                 Navigator.pushReplacementNamed(context, '/sign_in');
               },
-              child: const Text("Already have an account? Sign in"),
+              child: const Text('Already have an account? Sign in'),
             ),
           ],
         ),

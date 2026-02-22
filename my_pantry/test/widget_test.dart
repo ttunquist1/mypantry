@@ -1,30 +1,30 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:my_pantry/main.dart';
+import 'package:my_pantry/utils/recipe_parser.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(MyPantryApp());
+  test('Recipe parser maps valid JSON into recipe models', () {
+    final json = <String, dynamic>{
+      'recipes': [
+        <String, dynamic>{
+          'day': 'Monday',
+          'name': 'Veggie Pasta',
+          'prepTime': '10 min',
+          'cookTime': '20 min',
+          'ingredients': ['Pasta', 'Tomato', 'Spinach'],
+          'instructions': 'Boil pasta and combine with vegetables.',
+        },
+      ],
+    };
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    final recipes = RecipeParser.parseRecipesFromJson(json);
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    expect(recipes.length, 1);
+    expect(recipes.first.day, 'Monday');
+    expect(recipes.first.ingredients, ['Pasta', 'Tomato', 'Spinach']);
+  });
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  test('Recipe parser returns empty list for invalid payloads', () {
+    final recipes = RecipeParser.parseRecipesFromJson(<String, dynamic>{});
+    expect(recipes, isEmpty);
   });
 }

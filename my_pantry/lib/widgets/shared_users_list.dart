@@ -1,30 +1,34 @@
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 
 class SharedUsersList extends StatelessWidget {
-  final String listId;
-  final String collection;
-
   const SharedUsersList({
     super.key,
     required this.listId,
     this.collection = 'shoppingLists',
   });
 
+  final String listId;
+  final String collection;
+
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<DocumentSnapshot>(
-      future: FirebaseFirestore.instance.collection(collection).doc(listId).get(),
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection(collection)
+          .doc(listId)
+          .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) return const CircularProgressIndicator();
-
-        final data = snapshot.data!.data() as Map<String, dynamic>?;
-
-        if (data == null || !data.containsKey('sharedWith')) {
-          return const Text('Not shared with anyone.');
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const CircularProgressIndicator();
         }
 
-        final sharedUids = List<String>.from(data['sharedWith']);
+        if (snapshot.hasError) {
+          return Text('Error loading shared users: ${snapshot.error}');
+        }
+
+        final data = snapshot.data?.data();
+        final sharedUids = List<String>.from(data?['sharedWith'] ?? <String>[]);
 
         if (sharedUids.isEmpty) {
           return const Text('Not shared with anyone yet.');
@@ -34,70 +38,84 @@ class SharedUsersList extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Padding(
-              padding: EdgeInsets.only(top: 8.0),
-              child: Text('Shared With:', style: TextStyle(fontWeight: FontWeight.bold)),
+              padding: EdgeInsets.only(top: 8),
+              child: Text(
+                'Shared With:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
             ),
             const SizedBox(height: 4),
-            ...sharedUids.map((uid) => FutureBuilder<DocumentSnapshot>(
-                  future: FirebaseFirestore.instance.collection('users').doc(uid).get(),
-                  builder: (context, userSnap) {
-                    if (userSnap.connectionState == ConnectionState.waiting) {
-                      return const ListTile(title: Text('Loading...'));
-                    }
+            ...sharedUids.map((uid) {
+              return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                future: FirebaseFirestore.instance.collection('users').doc(uid).get(),
+                builder: (context, userSnapshot) {
+                  if (userSnapshot.connectionState == ConnectionState.waiting) {
+                    return const ListTile(title: Text('Loading...'));
+                  }
 
-                    if (!userSnap.hasData || userSnap.data == null || !userSnap.data!.exists) {
-                      return ListTile(
-                        title: Text(uid),
-                        subtitle: const Text('User not found'),
-                      );
-                    }
+                  final userData = userSnapshot.data?.data();
+                  final name = (userData?['name'] ?? uid).toString();
 
-                    final name = userSnap.data!.get('name') ?? uid;
-
-                    return ListTile(
-                      dense: true,
-                      title: Text(name),
-                      // subtitle: Text(uid),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.remove_circle, color: Colors.red),
-                        onPressed: () async {
-                          final confirm = await showDialog<bool>(
-                            context: context,
-                            builder: (context) => AlertDialog(
+                  return ListTile(
+                    dense: true,
+                    title: Text(name),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.remove_circle, color: Colors.red),
+                      onPressed: () async {
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (dialogContext) {
+                            return AlertDialog(
                               title: const Text('Remove Access?'),
                               content: Text('Remove "$name" from shared list?'),
                               actions: [
                                 TextButton(
-                                  onPressed: () => Navigator.pop(context, false),
+                                  onPressed: () => Navigator.pop(dialogContext, false),
                                   child: const Text('Cancel'),
                                 ),
                                 TextButton(
-                                  onPressed: () => Navigator.pop(context, true),
+                                  onPressed: () => Navigator.pop(dialogContext, true),
                                   child: const Text('Remove'),
                                 ),
                               ],
-                            ),
-                          );
-
-                          if (confirm == true) {
-                            await FirebaseFirestore.instance
-                                .collection(collection)
-                                .doc(listId)
-                                .update({
-                              'sharedWith': FieldValue.arrayRemove([uid]),
-                            });
-
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('$name removed from shared list.')),
                             );
+                          },
+                        );
 
-                            (context as Element).markNeedsBuild();
+                        if (confirm != true) {
+                          return;
+                        }
+
+                        try {
+                          await FirebaseFirestore.instance
+                              .collection(collection)
+                              .doc(listId)
+                              .update(<String, dynamic>{
+                            'sharedWith': FieldValue.arrayRemove(<String>[uid]),
+                          });
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('$name removed from shared list.'),
+                              ),
+                            );
                           }
-                        },
-                      ),
-                    );
-                  },
-                )),
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Unable to remove user: $e'),
+                                backgroundColor: Colors.red.shade700,
+                              ),
+                            );
+                          }
+                        }
+                      },
+                    ),
+                  );
+                },
+              );
+            }),
           ],
         );
       },

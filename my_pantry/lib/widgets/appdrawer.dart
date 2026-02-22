@@ -1,9 +1,29 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class AppDrawer extends StatelessWidget {
-  final PageController? pageController; // null means fallback to Navigator
-
   const AppDrawer({super.key, this.pageController});
+
+  final PageController? pageController;
+
+  void _navigateToPage(BuildContext context, int page) {
+    if (pageController != null) {
+      Navigator.pop(context);
+      pageController!.animateToPage(
+        page,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+      return;
+    }
+
+    Navigator.pushNamedAndRemoveUntil(
+      context,
+      '/homepager',
+      (route) => false,
+      arguments: {'initialPage': page},
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -13,36 +33,25 @@ class AppDrawer extends StatelessWidget {
         children: [
           DrawerHeader(
             decoration: BoxDecoration(color: Theme.of(context).primaryColor),
-            child: Text(''),
+            child: const SizedBox.shrink(),
           ),
           ListTile(
-  title: const Text('Pantry'),
-  onTap: () {
-    Navigator.pushNamedAndRemoveUntil(
-      context,
-      '/homepager',
-      (route) => false,
-      arguments: {'initialPage': 0},
-    );
-  },
-),
-ListTile(
-  title: const Text('Shopping List'),
-  onTap: () {
-    Navigator.pushNamedAndRemoveUntil(
-      context,
-      '/homepager',
-      (route) => false,
-      arguments: {'initialPage': 1},
-    );
-  },
-),
-
+            title: const Text('Pantry'),
+            onTap: () => _navigateToPage(context, 0),
+          ),
+          ListTile(
+            title: const Text('Shopping List'),
+            onTap: () => _navigateToPage(context, 1),
+          ),
           ListTile(
             title: const Text('Recipe'),
             onTap: () {
               Navigator.pop(context);
-              Navigator.pushReplacementNamed(context, '/ai');
+              Navigator.pushReplacementNamed(
+                context,
+                '/ai',
+                arguments: const <String>[],
+              );
             },
           ),
           ListTile(
@@ -61,9 +70,16 @@ ListTile(
           ),
           ListTile(
             title: const Text('Sign out'),
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.pushReplacementNamed(context, '/sign_in');
+            onTap: () async {
+              await FirebaseAuth.instance.signOut();
+              if (!context.mounted) {
+                return;
+              }
+              Navigator.pushNamedAndRemoveUntil(
+                context,
+                '/sign_in',
+                (route) => false,
+              );
             },
           ),
         ],

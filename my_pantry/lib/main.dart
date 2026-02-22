@@ -1,34 +1,54 @@
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:my_pantry/account.dart';
+import 'package:my_pantry/friend.dart';
+import 'package:my_pantry/homepage.dart';
+import 'package:my_pantry/pantry.dart';
+import 'package:my_pantry/qrcode.dart';
 import 'package:my_pantry/screens/recipe_list_screen.dart';
 import 'package:my_pantry/settings.dart';
-import 'firebase_options.dart';
-import 'package:flutter/material.dart';
-import 'package:my_pantry/pantry.dart';
 import 'package:my_pantry/shopping.dart';
 import 'package:my_pantry/sign_in.dart';
 import 'package:my_pantry/sign_up.dart';
-import 'package:my_pantry/account.dart';
-import 'package:my_pantry/qrcode.dart';
-import 'package:my_pantry/friend.dart';
-import 'package:my_pantry/homepage.dart';
 
-void main() async {
+import 'firebase_options.dart';
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  String? startupError;
 
   try {
+    await _initializeFirebase();
+  } catch (e) {
+    startupError = e.toString();
+    debugPrint('Firebase initialization failed: $e');
+  }
+
+  runApp(MyPantryApp(startupError: startupError));
+}
+
+Future<void> _initializeFirebase() async {
+  if (Firebase.apps.isNotEmpty) {
+    return;
+  }
+
+  if (kIsWeb) {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-  } catch (e) {
-    print("Firebase already initialized: $e");
+    return;
   }
 
-  runApp(const MyPantryApp());
+  // iOS/Android use their native Google config files.
+  await Firebase.initializeApp();
 }
 
 class MyPantryApp extends StatefulWidget {
-  const MyPantryApp({super.key});
+  const MyPantryApp({super.key, this.startupError});
+
+  final String? startupError;
 
   @override
   State<MyPantryApp> createState() => _MyPantryAppState();
@@ -39,46 +59,45 @@ class _MyPantryAppState extends State<MyPantryApp> {
 
   void toggleTheme() {
     setState(() {
-      _themeMode = _themeMode == ThemeMode.light ? ThemeMode.dark : ThemeMode.light;
+      _themeMode =
+          _themeMode == ThemeMode.light ? ThemeMode.dark : ThemeMode.light;
     });
   }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      title: 'My Pantry',
+      debugShowCheckedModeBanner: false,
+      themeMode: _themeMode,
       theme: ThemeData(
         brightness: Brightness.light,
         primarySwatch: Colors.blue,
-        primaryColor: Color.fromARGB(255, 255, 151, 151),
+        primaryColor: const Color.fromARGB(255, 255, 151, 151),
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.white,
           foregroundColor: Colors.black,
-          
         ),
       ),
       darkTheme: ThemeData(
         brightness: Brightness.dark,
         primarySwatch: Colors.blue,
-        
-        primaryColor: Color.fromARGB(255, 128, 17, 17),
+        primaryColor: const Color.fromARGB(255, 128, 17, 17),
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.black,
           foregroundColor: Colors.white,
         ),
       ),
-      
-      
-      
-      themeMode: _themeMode, // uses the state!
-      title: 'My Pantry',
-      home: const AuthWrapper(),
+      home: widget.startupError == null
+          ? const AuthWrapper()
+          : StartupErrorPage(message: widget.startupError!),
       routes: {
         '/friends': (context) => const FriendsPage(),
         '/sign_in': (context) => const SignInPage(),
         '/sign_up': (context) => const SignUpPage(),
         '/pantry': (context) => const PantryPage(),
         '/shopping': (context) => const ShoppingListPage(),
-        '/settings': (context) => SettingsPage(toggleTheme: toggleTheme), // ✅ passes toggleTheme
+        '/settings': (context) => SettingsPage(toggleTheme: toggleTheme),
         '/account': (context) => const AccountPage(),
         '/ai': (context) => const RecipeListScreen(),
         '/qr': (context) => const QRScannerPage(),
@@ -97,14 +116,47 @@ class AuthWrapper extends StatelessWidget {
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
         }
-        if (snapshot.hasData) {
-          return const HomePager();
-        } else {
+
+        if (!snapshot.hasData) {
           return const SignInPage();
         }
+
+        return const HomePager();
       },
+    );
+  }
+}
+
+class StartupErrorPage extends StatelessWidget {
+  const StartupErrorPage({super.key, required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline, size: 56, color: Colors.redAccent),
+              const SizedBox(height: 12),
+              const Text(
+                'Startup error',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(message, textAlign: TextAlign.center),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

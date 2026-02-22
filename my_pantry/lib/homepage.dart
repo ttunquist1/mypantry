@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:my_pantry/pantry.dart';
 import 'package:my_pantry/shopping.dart';
@@ -13,30 +14,46 @@ class HomePager extends StatefulWidget {
 }
 
 class _HomePagerState extends State<HomePager> {
-  late PageController _controller = PageController(initialPage: 0);
-  int _currentPage = 0;
-  late AnimationController _swirlController;
-
-
+  late final PageController _controller;
   final pantryKey = GlobalKey<PantryPageState>();
   final shoppingKey = GlobalKey<ShoppingListPageState>();
 
+  int _currentPage = 0;
   bool _showListName = false;
-  bool _animateTitle = false;
+  bool _appliedRouteArguments = false;
   Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = PageController(initialPage: 0);
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final args = ModalRoute.of(context)?.settings.arguments as Map?;
-    final initialPage = args != null && args['initialPage'] != null
-        ? args['initialPage'] as int
-        : 0;
+    if (_appliedRouteArguments) {
+      return;
+    }
+    _appliedRouteArguments = true;
 
-    _controller = PageController(initialPage: initialPage);
+    final args = ModalRoute.of(context)?.settings.arguments;
+    final routeMap = args is Map ? args : null;
+    final routeIndex = routeMap?['initialPage'];
+    final initialPage =
+        routeIndex is int ? routeIndex.clamp(0, 1) : _currentPage;
+
+    if (initialPage == _currentPage) {
+      return;
+    }
+
     _currentPage = initialPage;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _controller.hasClients) {
+        _controller.jumpToPage(initialPage);
+      }
+    });
   }
-  
 
   @override
   void dispose() {
@@ -45,29 +62,24 @@ class _HomePagerState extends State<HomePager> {
     super.dispose();
   }
 
-void _onPageChanged(int index) {
-  _timer?.cancel();
+  void _onPageChanged(int index) {
+    _timer?.cancel();
 
-  setState(() {
-    _currentPage = index;
-    _showListName = false;
-    _animateTitle = false;
-  });
+    setState(() {
+      _currentPage = index;
+      _showListName = false;
+    });
 
-  _timer = Timer(const Duration(milliseconds: 1000), () {
-    if (!mounted) return;
-
-    // Double check again, just in case
-    if (_currentPage == index) {
-      setState(() {
-        _showListName = true;
-      });
-    }
-  });
-}
-
-  void _openDrawer() {
-    Scaffold.of(context).openEndDrawer();
+    _timer = Timer(const Duration(milliseconds: 1000), () {
+      if (!mounted) {
+        return;
+      }
+      if (_currentPage == index) {
+        setState(() {
+          _showListName = true;
+        });
+      }
+    });
   }
 
   @override
@@ -75,83 +87,80 @@ void _onPageChanged(int index) {
     final pantryState = pantryKey.currentState;
     final shoppingState = shoppingKey.currentState;
 
-    // ✅ Compute title text once
     final String titleText = _showListName
         ? (_currentPage == 0
             ? (pantryState?.selectedListName ?? 'Pantry')
             : (shoppingState?.selectedListName ?? 'Shopping List'))
         : (_currentPage == 0 ? 'Pantry' : 'Shopping List');
 
-  return Scaffold(
-  appBar: AppBar(
-    title: AnimatedSwitcher(
-      duration: _showListName ? const Duration(milliseconds: 300) : Duration.zero,
-      transitionBuilder: (child, animation) =>
-          FadeTransition(opacity: animation, child: child),
-      child: Text(
-        titleText,
-        key: ValueKey<String>(titleText),
-      ),
-    ),
-  ),
-  endDrawer: AppDrawer(pageController: _controller),
-  body: Stack(
-    children: [
-      const SwirlBackground(),
-
-      // Main content
-      Positioned.fill(
-        child: PageView(
-          controller: _controller,
-          onPageChanged: _onPageChanged,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(bottom: 32.0),
-              child: PantryPage(key: pantryKey),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 32.0),
-              child: ShoppingListPage(key: shoppingKey),
-            ),
-          ],
+    return Scaffold(
+      appBar: AppBar(
+        title: AnimatedSwitcher(
+          duration:
+              _showListName ? const Duration(milliseconds: 300) : Duration.zero,
+          transitionBuilder: (child, animation) =>
+              FadeTransition(opacity: animation, child: child),
+          child: Text(
+            titleText,
+            key: ValueKey<String>(titleText),
+          ),
         ),
       ),
-
-      // Bottom nav dots OVER the swirl
-      Positioned(
-        bottom: 25,
-        left: 0,
-        right: 0,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(2, (index) {
-            return GestureDetector(
-              onTap: () {
-                if (_currentPage != index) {
-                  _controller.animateToPage(
-                    index,
-                    duration: const Duration(milliseconds: 400),
-                    curve: Curves.easeInOut,
-                  );
-                }
-              },
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                width: _currentPage == index ? 12 : 8,
-                height: _currentPage == index ? 12 : 8,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _currentPage == index ? Colors.blue : Colors.grey.shade400,
+      endDrawer: AppDrawer(pageController: _controller),
+      body: Stack(
+        children: [
+          const SwirlBackground(),
+          Positioned.fill(
+            child: PageView(
+              controller: _controller,
+              onPageChanged: _onPageChanged,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 32),
+                  child: PantryPage(key: pantryKey),
                 ),
-              ),
-            );
-          }),
-        ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 32),
+                  child: ShoppingListPage(key: shoppingKey),
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            bottom: 25,
+            left: 0,
+            right: 0,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(2, (index) {
+                return GestureDetector(
+                  onTap: () {
+                    if (_currentPage != index) {
+                      _controller.animateToPage(
+                        index,
+                        duration: const Duration(milliseconds: 400),
+                        curve: Curves.easeInOut,
+                      );
+                    }
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    width: _currentPage == index ? 12 : 8,
+                    height: _currentPage == index ? 12 : 8,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _currentPage == index
+                          ? Colors.blue
+                          : Colors.grey.shade400,
+                    ),
+                  ),
+                );
+              }),
+            ),
+          ),
+        ],
       ),
-    ],
-  ),
-);
-
+    );
   }
 }

@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import '../Models/recipe_model.dart';
-import '../utils/recipe_parser.dart';
-import '../widgets/recipe_card.dart';
-import '../widgets/appdrawer.dart';
+
+import '../models/recipe_model.dart';
 import '../utils/api_service.dart';
+import '../utils/recipe_parser.dart';
+import '../widgets/appdrawer.dart';
+import '../widgets/recipe_card.dart';
 
 class RecipeListScreen extends StatefulWidget {
   const RecipeListScreen({super.key});
@@ -13,50 +14,64 @@ class RecipeListScreen extends StatefulWidget {
 }
 
 class _RecipeListScreenState extends State<RecipeListScreen> {
-  List<Recipe> _recipes = [];
-  bool _isLoading = true;
-  String? _errorMessage;
   final ApiService _apiService = ApiService();
-  late List<String> _ingredients;
+
+  List<Recipe> _recipes = <Recipe>[];
+  List<String> _ingredients = <String>[];
+  bool _isLoading = true;
+  bool _hasLoaded = false;
+  String? _errorMessage;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-
-    // Extract ingredients from navigation arguments
-    final args = ModalRoute.of(context)!.settings.arguments;
-    if (args is List<String>) {
-      _ingredients = args;
-    } else {
-      _ingredients = [];
+    if (_hasLoaded) {
+      return;
     }
+    _hasLoaded = true;
 
+    final args = ModalRoute.of(context)?.settings.arguments;
+    _ingredients = args is List ? args.whereType<String>().toList() : <String>[];
     _loadRecipes();
   }
 
-  void _loadRecipes() async {
+  Future<void> _loadRecipes() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _recipes = <Recipe>[];
     });
 
+    if (_ingredients.isEmpty) {
+      setState(() {
+        _errorMessage = 'Select ingredients in Pantry first, then send them here.';
+        _isLoading = false;
+      });
+      return;
+    }
+
     try {
-      final jsonResponse = await _apiService.fetchRecipesFromOllamaPersistent(_ingredients);
+      final jsonResponse =
+          await _apiService.fetchRecipesFromOllamaPersistent(_ingredients);
       final parsedRecipes = RecipeParser.parseRecipesFromJson(jsonResponse);
+
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _recipes = parsedRecipes;
         _isLoading = false;
+        if (parsedRecipes.isEmpty) {
+          _errorMessage = 'No recipes found.';
+        }
       });
-
-      if (parsedRecipes.isEmpty) {
-        setState(() {
-          _errorMessage = "No recipes found.";
-        });
-      }
     } catch (e) {
+      if (!mounted) {
+        return;
+      }
       setState(() {
-        _errorMessage = "Error loading recipes: ${e.toString()}";
+        _errorMessage = 'Error loading recipes: $e';
         _isLoading = false;
       });
     }
@@ -64,11 +79,9 @@ class _RecipeListScreenState extends State<RecipeListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    
     return Scaffold(
       appBar: AppBar(
         title: const Text('Weekly Meal Plan'),
-        
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -76,7 +89,7 @@ class _RecipeListScreenState extends State<RecipeListScreen> {
           ),
         ],
       ),
-      endDrawer: AppDrawer(),
+      endDrawer: const AppDrawer(),
       body: _buildBody(),
     );
   }
@@ -89,7 +102,7 @@ class _RecipeListScreenState extends State<RecipeListScreen> {
     if (_errorMessage != null) {
       return Center(
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(16),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -115,9 +128,7 @@ class _RecipeListScreenState extends State<RecipeListScreen> {
 
     return ListView.builder(
       itemCount: _recipes.length,
-      itemBuilder: (context, index) {
-        return RecipeCard(recipe: _recipes[index]);
-      },
+      itemBuilder: (context, index) => RecipeCard(recipe: _recipes[index]),
     );
   }
 }
