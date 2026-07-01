@@ -8,16 +8,22 @@ class AccountPage extends StatelessWidget {
   const AccountPage({super.key});
 
   Future<String?> _getUsername(String uid) async {
-    final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    final doc =
+        await FirebaseFirestore.instance.collection('users').doc(uid).get();
     return doc.data()?['name']?.toString();
   }
 
   Future<String?> _getFriendCode(String uid) async {
-    final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    final doc =
+        await FirebaseFirestore.instance.collection('users').doc(uid).get();
     return doc.data()?['friendCode']?.toString();
   }
 
-  void _showMessage(BuildContext context, String message, {bool isError = false}) {
+  void _showMessage(
+    BuildContext context,
+    String message, {
+    bool isError = false,
+  }) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
@@ -26,18 +32,26 @@ class AccountPage extends StatelessWidget {
     );
   }
 
-  Future<void> sendFriendRequest(BuildContext context, String friendCode) async {
+  Future<void> sendFriendRequest(
+    BuildContext context,
+    String friendCode,
+  ) async {
     final myId = FirebaseAuth.instance.currentUser?.uid;
     if (myId == null || friendCode.trim().isEmpty) {
       return;
     }
 
     try {
-      final result = await FirebaseFirestore.instance
-          .collection('users')
-          .where('friendCode', isEqualTo: friendCode.trim())
-          .limit(1)
-          .get();
+      final result =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .where('friendCode', isEqualTo: friendCode.trim())
+              .limit(1)
+              .get();
+
+      if (!context.mounted) {
+        return;
+      }
 
       if (result.docs.isEmpty) {
         _showMessage(context, 'Friend code not found.', isError: true);
@@ -66,7 +80,11 @@ class AccountPage extends StatelessWidget {
       }
     } catch (e) {
       if (context.mounted) {
-        _showMessage(context, 'Unable to send friend request: $e', isError: true);
+        _showMessage(
+          context,
+          'Unable to send friend request: $e',
+          isError: true,
+        );
       }
     }
   }
@@ -90,7 +108,9 @@ class AccountPage extends StatelessWidget {
               ),
               TextField(
                 controller: passwordController,
-                decoration: const InputDecoration(labelText: 'Current Password'),
+                decoration: const InputDecoration(
+                  labelText: 'Current Password',
+                ),
                 obscureText: true,
               ),
             ],
@@ -111,7 +131,11 @@ class AccountPage extends StatelessWidget {
                     currentEmail == null ||
                     newEmail.isEmpty ||
                     password.isEmpty) {
-                  _showMessage(context, 'All fields are required.', isError: true);
+                  _showMessage(
+                    context,
+                    'All fields are required.',
+                    isError: true,
+                  );
                   return;
                 }
 
@@ -209,7 +233,9 @@ class AccountPage extends StatelessWidget {
                       return;
                     }
                     try {
-                      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+                      await FirebaseAuth.instance.sendPasswordResetEmail(
+                        email: email,
+                      );
                       if (context.mounted) {
                         _showMessage(context, 'Password reset email sent.');
                       }
@@ -269,6 +295,9 @@ class AccountPage extends StatelessWidget {
                               ),
                             );
 
+                            if (!context.mounted) {
+                              return;
+                            }
                             if (scannedCode != null && scannedCode.isNotEmpty) {
                               await sendFriendRequest(context, scannedCode);
                             }
@@ -291,16 +320,21 @@ class AccountPage extends StatelessWidget {
                                   ),
                                   actions: [
                                     TextButton(
-                                      onPressed: () => Navigator.pop(dialogContext),
+                                      onPressed:
+                                          () => Navigator.pop(dialogContext),
                                       child: const Text('Cancel'),
                                     ),
                                     ElevatedButton(
                                       onPressed: () async {
-                                        final inputCode = controller.text.trim();
+                                        final inputCode =
+                                            controller.text.trim();
                                         if (dialogContext.mounted) {
                                           Navigator.pop(dialogContext);
                                         }
-                                        await sendFriendRequest(context, inputCode);
+                                        await sendFriendRequest(
+                                          context,
+                                          inputCode,
+                                        );
                                       },
                                       child: const Text('Add Friend'),
                                     ),

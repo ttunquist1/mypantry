@@ -62,7 +62,9 @@ class ApiService {
     final now = DateTime.now().millisecondsSinceEpoch;
     const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
 
-    if (cachedData != null && cacheTime != null && (now - cacheTime) < oneWeekMs) {
+    if (cachedData != null &&
+        cacheTime != null &&
+        (now - cacheTime) < oneWeekMs) {
       final cachedJson = json.decode(cachedData);
       if (cachedJson is Map<String, dynamic>) {
         return cachedJson;
@@ -75,7 +77,9 @@ class ApiService {
     return jsonResponse;
   }
 
-  Future<Map<String, dynamic>> _fetchRecipesFromApi(List<String> ingredients) async {
+  Future<Map<String, dynamic>> _fetchRecipesFromApi(
+    List<String> ingredients,
+  ) async {
     final requestBody = <String, dynamic>{
       'model': 'llama3.2',
       'prompt':

@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:my_pantry/models/inventory_item.dart';
+import 'package:my_pantry/widgets/inventory_item_editor.dart';
+import 'package:my_pantry/widgets/item_fullness_icon.dart';
 import 'package:my_pantry/widgets/shared_users_list.dart';
 
 class PantryPage extends StatefulWidget {
@@ -12,23 +15,15 @@ class PantryPage extends StatefulWidget {
   State<PantryPage> createState() => PantryPageState();
 }
 
-class PantryPageState extends State<PantryPage>
-    with SingleTickerProviderStateMixin {
+class PantryPageState extends State<PantryPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final TextEditingController _ghostController = TextEditingController();
-  final FocusNode _ghostFocusNode = FocusNode();
-  final Map<String, TextEditingController> controllerMap =
-      <String, TextEditingController>{};
-
-  late final AnimationController _rotationController;
-  late final Animation<double> _rotationAnimation;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _itemsSubscription;
 
   List<Map<String, dynamic>> pantries = <Map<String, dynamic>>[];
-  String? selectedListId;
   List<Map<String, dynamic>> shoppingLists = <Map<String, dynamic>>[];
+  List<InventoryItem> items = <InventoryItem>[];
+  String? selectedListId;
   String? selectedShoppingListId;
-  List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
 
   String? get selectedListName {
     if (selectedListId == null) {
@@ -36,27 +31,16 @@ class PantryPageState extends State<PantryPage>
     }
     final match = pantries.where((p) => p['id'] == selectedListId);
     if (match.isEmpty) {
-      return '';
+      return null;
     }
     return (match.first['name'] ?? '').toString();
   }
 
+  int get checkedItemCount => items.where((item) => item.checked).length;
+
   @override
   void initState() {
     super.initState();
-    _rotationController = AnimationController(
-      duration: const Duration(milliseconds: 600),
-      vsync: this,
-    );
-    _rotationAnimation = TweenSequence<double>([
-      TweenSequenceItem(tween: Tween(begin: 0.0, end: 0.1), weight: 1),
-      TweenSequenceItem(tween: Tween(begin: 0.1, end: -0.1), weight: 1),
-      TweenSequenceItem(tween: Tween(begin: -0.1, end: 0.1), weight: 1),
-      TweenSequenceItem(tween: Tween(begin: 0.1, end: 0.0), weight: 1),
-    ]).animate(
-      CurvedAnimation(parent: _rotationController, curve: Curves.easeInOut),
-    );
-
     fetchPantries();
     fetchShoppingLists();
   }
@@ -89,9 +73,11 @@ class PantryPageState extends State<PantryPage>
 
   Future<void> addUserToList(String listId, String userId) async {
     try {
-      await _firestore.collection('Pantries').doc(listId).update(<String, dynamic>{
-        'sharedWith': FieldValue.arrayUnion(<String>[userId]),
-      });
+      await _firestore.collection('Pantries').doc(listId).update(
+        <String, dynamic>{
+          'sharedWith': FieldValue.arrayUnion(<String>[userId]),
+        },
+      );
       await fetchPantries();
     } catch (e) {
       _showMessage('Error sharing pantry: $e', isError: true);
@@ -105,17 +91,21 @@ class PantryPageState extends State<PantryPage>
     }
 
     try {
-      final snapshot = await _firestore
-          .collection('shoppingLists')
-          .where('sharedWith', arrayContains: user.uid)
-          .get();
+      final snapshot =
+          await _firestore
+              .collection('shoppingLists')
+              .where('sharedWith', arrayContains: user.uid)
+              .get();
 
       if (!mounted) {
         return;
       }
+
       setState(() {
         shoppingLists =
-            snapshot.docs.map((doc) => <String, dynamic>{'id': doc.id, ...doc.data()}).toList();
+            snapshot.docs
+                .map((doc) => <String, dynamic>{'id': doc.id, ...doc.data()})
+                .toList();
         if (shoppingLists.isNotEmpty && selectedShoppingListId == null) {
           selectedShoppingListId = shoppingLists.first['id']?.toString();
         }
@@ -132,43 +122,48 @@ class PantryPageState extends State<PantryPage>
     }
 
     try {
-      final snapshot = await _firestore
-          .collection('Pantries')
-          .where('sharedWith', arrayContains: user.uid)
-          .get();
+      final snapshot =
+          await _firestore
+              .collection('Pantries')
+              .where('sharedWith', arrayContains: user.uid)
+              .get();
 
       if (!mounted) {
         return;
       }
+
       setState(() {
         pantries =
-            snapshot.docs.map((doc) => <String, dynamic>{'id': doc.id, ...doc.data()}).toList();
+            snapshot.docs
+                .map((doc) => <String, dynamic>{'id': doc.id, ...doc.data()})
+                .toList();
       });
 
-      if (pantries.isNotEmpty) {
-        final listStillExists = pantries.any((p) => p['id'] == selectedListId);
-        if (!listStillExists) {
-          final newId = pantries.first['id']?.toString();
-          if (!mounted) {
-            return;
-          }
-          setState(() {
-            selectedListId = newId;
-          });
-          if (newId != null) {
-            listenToItems(newId);
-          }
-        }
-      } else {
-        _itemsSubscription?.cancel();
+      if (pantries.isEmpty) {
+        await _itemsSubscription?.cancel();
         _itemsSubscription = null;
         if (!mounted) {
           return;
         }
         setState(() {
           selectedListId = null;
-          items = <Map<String, dynamic>>[];
+          items = <InventoryItem>[];
         });
+        return;
+      }
+
+      final listStillExists = pantries.any((p) => p['id'] == selectedListId);
+      if (!listStillExists) {
+        final newId = pantries.first['id']?.toString();
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          selectedListId = newId;
+        });
+        if (newId != null) {
+          listenToItems(newId);
+        }
       }
     } catch (e) {
       _showMessage('Error loading pantries: $e', isError: true);
@@ -184,50 +179,22 @@ class PantryPageState extends State<PantryPage>
         .orderBy('order')
         .snapshots()
         .listen(
-      (snapshot) {
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          items = snapshot.docs
-              .map((doc) => <String, dynamic>{'id': doc.id, ...doc.data()})
-              .toList();
-
-          for (final item in items) {
-            final id = item['id']?.toString();
-            if (id == null) {
-              continue;
+          (snapshot) {
+            if (!mounted) {
+              return;
             }
-            final text = item['item']?.toString() ?? '';
-            final existing = controllerMap[id];
-
-            if (existing == null) {
-              controllerMap[id] = TextEditingController(text: text);
-              continue;
+            setState(() {
+              items = snapshot.docs
+                  .map((doc) => InventoryItem.fromMap(doc.id, doc.data()))
+                  .toList(growable: false);
+            });
+          },
+          onError: (Object error) {
+            if (mounted) {
+              _showMessage('Error loading pantry items: $error', isError: true);
             }
-
-            if (existing.text != text && existing.selection.isCollapsed) {
-              final oldSelection = existing.selection;
-              existing.text = text;
-              existing.selection = oldSelection;
-            }
-          }
-
-          final validIds = items.map((item) => item['id']?.toString()).toSet();
-          final staleIds = controllerMap.keys
-              .where((id) => !validIds.contains(id))
-              .toList(growable: false);
-          for (final staleId in staleIds) {
-            controllerMap.remove(staleId)?.dispose();
-          }
-        });
-      },
-      onError: (Object error) {
-        if (mounted) {
-          _showMessage('Error loading pantry items: $error', isError: true);
-        }
-      },
-    );
+          },
+        );
   }
 
   void showCreatePantryDialog(String userId) {
@@ -246,7 +213,7 @@ class PantryPageState extends State<PantryPage>
               onPressed: () => Navigator.pop(context),
               child: const Text('Cancel'),
             ),
-            TextButton(
+            FilledButton(
               onPressed: () {
                 final value = controller.text.trim();
                 if (value.isNotEmpty) {
@@ -260,6 +227,79 @@ class PantryPageState extends State<PantryPage>
         );
       },
     ).whenComplete(controller.dispose);
+  }
+
+  Future<void> openAddItemSheet() async {
+    final listId = selectedListId;
+    if (listId == null) {
+      _showMessage('Create or select a pantry first.', isError: true);
+      return;
+    }
+
+    final draft = await showInventoryItemEditor(
+      context,
+      title: 'Add Pantry Item',
+    );
+    if (draft == null) {
+      return;
+    }
+    await addItemToList(listId, draft);
+  }
+
+  Future<void> addItemToList(String listId, InventoryItemDraft draft) async {
+    try {
+      final item = InventoryItem(
+        id: '',
+        name: draft.name,
+        details: draft.details,
+        location: draft.location,
+        mealTags: draft.mealTags,
+        recipeTags: draft.recipeTags,
+        fullnessPercent: draft.fullnessPercent,
+        checked: false,
+        order: items.length,
+      );
+
+      await _firestore
+          .collection('Pantries')
+          .doc(listId)
+          .collection('items')
+          .add(item.toMap());
+    } catch (e) {
+      _showMessage('Error adding item: $e', isError: true);
+    }
+  }
+
+  Future<void> editItem(InventoryItem item) async {
+    final draft = await showInventoryItemEditor(
+      context,
+      title: 'Edit Pantry Item',
+      initialItem: item,
+    );
+    if (draft == null || selectedListId == null) {
+      return;
+    }
+
+    try {
+      final updated = item.copyWith(
+        name: draft.name,
+        details: draft.details,
+        location: draft.location,
+        mealTags: draft.mealTags,
+        recipeTags: draft.recipeTags,
+        fullnessPercent: draft.fullnessPercent,
+        clearFullnessPercent: draft.fullnessPercent == null,
+      );
+
+      await _firestore
+          .collection('Pantries')
+          .doc(selectedListId)
+          .collection('items')
+          .doc(item.id)
+          .update(updated.toMap());
+    } catch (e) {
+      _showMessage('Error updating item: $e', isError: true);
+    }
   }
 
   Future<void> reorderItems(int oldIndex, int newIndex) async {
@@ -276,45 +316,24 @@ class PantryPageState extends State<PantryPage>
       newIndex -= 1;
     }
 
-    final reordered = <Map<String, dynamic>>[...items];
+    final reordered = <InventoryItem>[...items];
     final moved = reordered.removeAt(oldIndex);
     reordered.insert(newIndex, moved);
 
     try {
       final batch = _firestore.batch();
       for (var i = 0; i < reordered.length; i++) {
-        final itemId = reordered[i]['id']?.toString();
-        if (itemId == null) {
-          continue;
-        }
+        final item = reordered[i].copyWith(order: i);
         final docRef = _firestore
             .collection('Pantries')
             .doc(listId)
             .collection('items')
-            .doc(itemId);
+            .doc(item.id);
         batch.update(docRef, <String, dynamic>{'order': i});
       }
       await batch.commit();
     } catch (e) {
       _showMessage('Error reordering items: $e', isError: true);
-    }
-  }
-
-  Future<void> addItemToList(String listId, String itemName) async {
-    final value = itemName.trim();
-    if (value.isEmpty) {
-      return;
-    }
-    try {
-      await _firestore.collection('Pantries').doc(listId).collection('items').add(
-        <String, dynamic>{
-          'item': value,
-          'checked': false,
-          'order': items.length,
-        },
-      );
-    } catch (e) {
-      _showMessage('Error adding item: $e', isError: true);
     }
   }
 
@@ -324,7 +343,8 @@ class PantryPageState extends State<PantryPage>
       return;
     }
 
-    String? tempSelected = selectedShoppingListId ?? shoppingLists.first['id']?.toString();
+    String? tempSelected =
+        selectedShoppingListId ?? shoppingLists.first['id']?.toString();
 
     await showDialog<void>(
       context: context,
@@ -332,16 +352,19 @@ class PantryPageState extends State<PantryPage>
         return StatefulBuilder(
           builder: (dialogContext, setDialogState) {
             return AlertDialog(
-              title: const Text('Select Shopping List'),
+              title: const Text('Move To Shopping List'),
               content: DropdownButton<String>(
                 value: tempSelected,
                 isExpanded: true,
-                items: shoppingLists.map((list) {
-                  return DropdownMenuItem<String>(
-                    value: list['id']?.toString(),
-                    child: Text((list['name'] ?? 'Unnamed List').toString()),
-                  );
-                }).toList(),
+                items:
+                    shoppingLists.map((list) {
+                      return DropdownMenuItem<String>(
+                        value: list['id']?.toString(),
+                        child: Text(
+                          (list['name'] ?? 'Unnamed List').toString(),
+                        ),
+                      );
+                    }).toList(),
                 onChanged: (value) {
                   setDialogState(() {
                     tempSelected = value;
@@ -353,16 +376,17 @@ class PantryPageState extends State<PantryPage>
                   onPressed: () => Navigator.pop(dialogContext),
                   child: const Text('Cancel'),
                 ),
-                ElevatedButton(
-                  onPressed: tempSelected == null
-                      ? null
-                      : () async {
-                          setState(() {
-                            selectedShoppingListId = tempSelected;
-                          });
-                          Navigator.pop(dialogContext);
-                          await moveCheckedToShoppingList();
-                        },
+                FilledButton(
+                  onPressed:
+                      tempSelected == null
+                          ? null
+                          : () async {
+                            setState(() {
+                              selectedShoppingListId = tempSelected;
+                            });
+                            Navigator.pop(dialogContext);
+                            await moveCheckedToShoppingList();
+                          },
                   child: const Text('Move'),
                 ),
               ],
@@ -380,21 +404,23 @@ class PantryPageState extends State<PantryPage>
       return;
     }
 
-    final checkedItems =
-        items.where((item) => item['checked'] == true).toList(growable: false);
+    final checkedItems = items
+        .where((item) => item.checked)
+        .toList(growable: false);
     if (checkedItems.isEmpty) {
-      _showMessage('No checked items to move.', isError: true);
+      _showMessage('Select items to move first.', isError: true);
       return;
     }
 
     try {
-      final maxSnapshot = await _firestore
-          .collection('shoppingLists')
-          .doc(shoppingListId)
-          .collection('items')
-          .orderBy('order', descending: true)
-          .limit(1)
-          .get();
+      final maxSnapshot =
+          await _firestore
+              .collection('shoppingLists')
+              .doc(shoppingListId)
+              .collection('items')
+              .orderBy('order', descending: true)
+              .limit(1)
+              .get();
 
       var nextOrder = 0;
       if (maxSnapshot.docs.isNotEmpty) {
@@ -406,28 +432,23 @@ class PantryPageState extends State<PantryPage>
 
       final batch = _firestore.batch();
       for (final item in checkedItems) {
-        final itemId = item['id']?.toString();
-        if (itemId == null) {
-          continue;
-        }
-
-        final shoppingItemRef = _firestore
-            .collection('shoppingLists')
-            .doc(shoppingListId)
-            .collection('items')
-            .doc();
-        batch.set(shoppingItemRef, <String, dynamic>{
-          'item': item['item']?.toString() ?? '',
-          'checked': false,
-          'order': nextOrder,
-        });
+        final shoppingItemRef =
+            _firestore
+                .collection('shoppingLists')
+                .doc(shoppingListId)
+                .collection('items')
+                .doc();
+        batch.set(
+          shoppingItemRef,
+          item.copyWith(checked: false, order: nextOrder).toMap(),
+        );
         nextOrder += 1;
 
         final pantryItemRef = _firestore
             .collection('Pantries')
             .doc(pantryId)
             .collection('items')
-            .doc(itemId);
+            .doc(item.id);
         batch.delete(pantryItemRef);
       }
 
@@ -438,12 +459,9 @@ class PantryPageState extends State<PantryPage>
     }
   }
 
-  Future<void> updateItem(String listId, int index, String newText) async {
-    if (index < 0 || index >= items.length) {
-      return;
-    }
-    final id = items[index]['id']?.toString();
-    if (id == null) {
+  Future<void> toggleCheck(InventoryItem item, bool newValue) async {
+    final listId = selectedListId;
+    if (listId == null) {
       return;
     }
 
@@ -452,43 +470,8 @@ class PantryPageState extends State<PantryPage>
           .collection('Pantries')
           .doc(listId)
           .collection('items')
-          .doc(id)
-          .update(<String, dynamic>{'item': newText});
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        items[index]['item'] = newText;
-      });
-    } catch (e) {
-      _showMessage('Error updating item: $e', isError: true);
-    }
-  }
-
-  Future<void> toggleCheck(String listId, int index) async {
-    if (index < 0 || index >= items.length) {
-      return;
-    }
-    final id = items[index]['id']?.toString();
-    if (id == null) {
-      return;
-    }
-
-    final current = items[index]['checked'] == true;
-    final newValue = !current;
-    try {
-      await _firestore
-          .collection('Pantries')
-          .doc(listId)
-          .collection('items')
-          .doc(id)
+          .doc(item.id)
           .update(<String, dynamic>{'checked': newValue});
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        items[index]['checked'] = newValue;
-      });
     } catch (e) {
       _showMessage('Error updating checkbox: $e', isError: true);
     }
@@ -502,29 +485,15 @@ class PantryPageState extends State<PantryPage>
           .collection('items')
           .doc(itemId)
           .delete();
-
-      if (mounted) {
-        setState(() {
-          final index = items.indexWhere((item) => item['id'] == itemId);
-          if (index != -1) {
-            items.removeAt(index);
-            controllerMap.remove(itemId)?.dispose();
-          }
-        });
-      }
-
-      _rotationController.repeat(period: const Duration(milliseconds: 600));
-      Future<void>.delayed(const Duration(seconds: 1), () {
-        if (mounted) {
-          _rotationController.stop();
-        }
-      });
     } catch (e) {
       _showMessage('Error deleting item: $e', isError: true);
     }
   }
 
-  Future<void> showFriendShareDialog(BuildContext context, String listId) async {
+  Future<void> showFriendShareDialog(
+    BuildContext context,
+    String listId,
+  ) async {
     final currentUid = FirebaseAuth.instance.currentUser?.uid;
     if (currentUid == null) {
       _showMessage('You must be signed in to share lists.', isError: true);
@@ -533,8 +502,13 @@ class PantryPageState extends State<PantryPage>
 
     try {
       final userDoc =
-          await FirebaseFirestore.instance.collection('users').doc(currentUid).get();
-      final friendIds = List<String>.from(userDoc.data()?['friends'] ?? <String>[]);
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(currentUid)
+              .get();
+      final friendIds = List<String>.from(
+        userDoc.data()?['friends'] ?? <String>[],
+      );
 
       if (friendIds.isEmpty) {
         _showMessage('No friends found to share with.', isError: true);
@@ -542,8 +516,14 @@ class PantryPageState extends State<PantryPage>
       }
 
       final friendNameResults = await Future.wait(
-        friendIds.map((id) => FirebaseFirestore.instance.collection('users').doc(id).get()),
+        friendIds.map(
+          (id) => FirebaseFirestore.instance.collection('users').doc(id).get(),
+        ),
       );
+
+      if (!context.mounted) {
+        return;
+      }
 
       final friendNames = <String, String>{};
       for (final doc in friendNameResults) {
@@ -559,24 +539,25 @@ class PantryPageState extends State<PantryPage>
           return StatefulBuilder(
             builder: (dialogContext, setDialogState) {
               return AlertDialog(
-                title: const Text('Share List With Friends'),
+                title: const Text('Share Pantry'),
                 content: SingleChildScrollView(
                   child: Column(
-                    children: friendIds.map((id) {
-                      return CheckboxListTile(
-                        value: selected.contains(id),
-                        title: Text(friendNames[id] ?? id),
-                        onChanged: (bool? value) {
-                          setDialogState(() {
-                            if (value == true) {
-                              selected.add(id);
-                            } else {
-                              selected.remove(id);
-                            }
-                          });
-                        },
-                      );
-                    }).toList(),
+                    children:
+                        friendIds.map((id) {
+                          return CheckboxListTile(
+                            value: selected.contains(id),
+                            title: Text(friendNames[id] ?? id),
+                            onChanged: (bool? value) {
+                              setDialogState(() {
+                                if (value == true) {
+                                  selected.add(id);
+                                } else {
+                                  selected.remove(id);
+                                }
+                              });
+                            },
+                          );
+                        }).toList(),
                   ),
                 ),
                 actions: [
@@ -584,20 +565,21 @@ class PantryPageState extends State<PantryPage>
                     onPressed: () => Navigator.pop(dialogContext),
                     child: const Text('Cancel'),
                   ),
-                  ElevatedButton(
-                    onPressed: selected.isEmpty
-                        ? null
-                        : () async {
-                            for (final uid in selected) {
-                              await addUserToList(listId, uid);
-                            }
-                            if (dialogContext.mounted) {
-                              Navigator.pop(dialogContext);
-                            }
-                            _showMessage(
-                              'List shared with ${selected.length} friend(s).',
-                            );
-                          },
+                  FilledButton(
+                    onPressed:
+                        selected.isEmpty
+                            ? null
+                            : () async {
+                              for (final uid in selected) {
+                                await addUserToList(listId, uid);
+                              }
+                              if (dialogContext.mounted) {
+                                Navigator.pop(dialogContext);
+                              }
+                              _showMessage(
+                                'Pantry shared with ${selected.length} friend(s).',
+                              );
+                            },
                     child: const Text('Share'),
                   ),
                 ],
@@ -607,14 +589,18 @@ class PantryPageState extends State<PantryPage>
         },
       );
     } catch (e) {
-      _showMessage('Error sharing list: $e', isError: true);
+      _showMessage('Error sharing pantry: $e', isError: true);
     }
   }
 
   Future<void> removePantry(String pantryId) async {
     try {
       final itemsSnapshot =
-          await _firestore.collection('Pantries').doc(pantryId).collection('items').get();
+          await _firestore
+              .collection('Pantries')
+              .doc(pantryId)
+              .collection('items')
+              .get();
 
       final batch = _firestore.batch();
       for (final doc in itemsSnapshot.docs) {
@@ -622,95 +608,249 @@ class PantryPageState extends State<PantryPage>
       }
       batch.delete(_firestore.collection('Pantries').doc(pantryId));
       await batch.commit();
-
-      if (selectedListId == pantryId && mounted) {
-        setState(() {
-          selectedListId = null;
-          items = <Map<String, dynamic>>[];
-        });
-      }
       await fetchPantries();
     } catch (e) {
       _showMessage('Error deleting pantry: $e', isError: true);
     }
   }
 
+  Future<void> _sendSelectedIngredientsToRecipes() async {
+    final selectedIngredients = items
+        .where((item) => item.checked)
+        .map((item) => item.displayLabel)
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+
+    if (selectedIngredients.isEmpty) {
+      _showMessage('Select ingredients to send first.', isError: true);
+      return;
+    }
+
+    if (!context.mounted) {
+      return;
+    }
+
+    Navigator.pushNamed(context, '/ai', arguments: selectedIngredients);
+  }
+
   @override
   void dispose() {
     _itemsSubscription?.cancel();
-    _rotationController.dispose();
-    _ghostController.dispose();
-    _ghostFocusNode.dispose();
-    for (final controller in controllerMap.values) {
-      controller.dispose();
-    }
     super.dispose();
   }
 
-  Widget buildItem(int index, {required Key key}) {
-    final item = items[index];
-    final itemId = item['id']?.toString();
-    if (itemId == null) {
-      return const SizedBox.shrink();
-    }
-
-    final controller = controllerMap[itemId];
-    if (controller == null) {
-      return const SizedBox.shrink();
-    }
-
+  Widget _buildItemCard(InventoryItem item) {
     return Dismissible(
-      key: key,
+      key: ValueKey(item.id),
       direction: DismissDirection.endToStart,
       background: Container(
-        color: Colors.red,
-        alignment: Alignment.centerRight,
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: RotationTransition(
-          turns: _rotationAnimation,
-          child: const Icon(Icons.delete, color: Colors.white),
+        decoration: BoxDecoration(
+          color: Colors.red.shade400,
+          borderRadius: BorderRadius.circular(16),
         ),
+        alignment: Alignment.centerRight,
+        child: const Icon(Icons.delete_outline, color: Colors.white),
       ),
       onDismissed: (_) {
         if (selectedListId != null) {
-          removeItemById(selectedListId!, itemId);
+          removeItemById(selectedListId!, item.id);
         }
       },
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor.withOpacity(0.9),
-          borderRadius: BorderRadius.circular(8),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.white.withOpacity(0.3),
-              blurRadius: 12,
-              spreadRadius: 2,
+      child: Card(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 6,
+          ),
+          onTap: () => editItem(item),
+          leading: Checkbox(
+            value: item.checked,
+            onChanged: (value) => toggleCheck(item, value ?? false),
+          ),
+          title: Text(
+            item.displayName,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              decoration: item.checked ? TextDecoration.lineThrough : null,
             ),
+          ),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (item.details.trim().isNotEmpty) Text(item.details.trim()),
+                if (item.summaryChips.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: item.summaryChips
+                        .map((chip) => Chip(label: Text(chip)))
+                        .toList(growable: false),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ItemFullnessIcon(fullnessPercent: item.fullnessPercent),
+              const SizedBox(width: 8),
+              const Icon(Icons.edit_outlined),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(String userId) {
+    return Card(
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Pantry', style: Theme.of(context).textTheme.headlineSmall),
+            const SizedBox(height: 6),
+            Text(
+              'Keep items readable, detailed, and easy to move.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            if (pantries.isEmpty)
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => showCreatePantryDialog(userId),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Create Your First Pantry'),
+                ),
+              )
+            else ...[
+              DropdownButtonFormField<String>(
+                initialValue: selectedListId,
+                decoration: const InputDecoration(
+                  labelText: 'Current pantry',
+                  border: OutlineInputBorder(),
+                ),
+                items: pantries
+                    .map((list) {
+                      return DropdownMenuItem<String>(
+                        value: list['id']?.toString(),
+                        child: Text(
+                          (list['name'] ?? 'Unnamed Pantry').toString(),
+                        ),
+                      );
+                    })
+                    .toList(growable: false),
+                onChanged: (value) {
+                  setState(() {
+                    selectedListId = value;
+                  });
+                  if (value != null) {
+                    listenToItems(value);
+                  }
+                },
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilledButton.icon(
+                    onPressed: openAddItemSheet,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add Item'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => showCreatePantryDialog(userId),
+                    icon: const Icon(Icons.kitchen_outlined),
+                    label: const Text('New Pantry'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed:
+                        selectedListId == null
+                            ? null
+                            : () =>
+                                showFriendShareDialog(context, selectedListId!),
+                    icon: const Icon(Icons.group_outlined),
+                    label: const Text('Share'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed:
+                        selectedListId == null
+                            ? null
+                            : () => removePantry(selectedListId!),
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text('Delete'),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
-        child: ListTile(
-          leading: Checkbox(
-            value: item['checked'] == true,
-            onChanged: (_) {
-              if (selectedListId != null) {
-                toggleCheck(selectedListId!, index);
-              }
-            },
+      ),
+    );
+  }
+
+  Widget _buildActionBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          FilledButton.tonalIcon(
+            onPressed:
+                checkedItemCount == 0 ? null : showMoveToShoppingListDialog,
+            icon: const Icon(Icons.shopping_cart_checkout_outlined),
+            label: Text('Move Checked ($checkedItemCount)'),
           ),
-          title: TextField(
-            controller: controller,
-            decoration: const InputDecoration(
-              border: InputBorder.none,
-              hintText: 'Item',
+          OutlinedButton.icon(
+            onPressed:
+                checkedItemCount == 0
+                    ? null
+                    : _sendSelectedIngredientsToRecipes,
+            icon: const Icon(Icons.restaurant_menu_outlined),
+            label: const Text('Send To Recipes'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyItemsState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.inventory_2_outlined, size: 56),
+            const SizedBox(height: 12),
+            Text(
+              'No pantry items yet',
+              style: Theme.of(context).textTheme.titleLarge,
             ),
-            onChanged: (value) {
-              if (selectedListId != null) {
-                updateItem(selectedListId!, index, value);
-              }
-            },
-          ),
-          trailing: const Icon(Icons.drag_handle),
+            const SizedBox(height: 8),
+            const Text(
+              'Add simple names now, then enrich them with details like size, brand, and kitchen location.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: openAddItemSheet,
+              icon: const Icon(Icons.add),
+              label: const Text('Add First Item'),
+            ),
+          ],
         ),
       ),
     );
@@ -725,179 +865,34 @@ class PantryPageState extends State<PantryPage>
 
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          child: Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: ExpansionTile(
-              title: const Text('Manage Pantry'),
-              initiallyExpanded: false,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: DropdownButton<String>(
-                              value: selectedListId,
-                              hint: const Text('Select a pantry'),
-                              isExpanded: true,
-                              items: pantries.map((list) {
-                                return DropdownMenuItem<String>(
-                                  value: list['id']?.toString(),
-                                  child: Text((list['name'] ?? 'Unnamed List').toString()),
-                                );
-                              }).toList(),
-                              onChanged: (value) {
-                                setState(() {
-                                  selectedListId = value;
-                                });
-                                if (value != null) {
-                                  listenToItems(value);
-                                }
-                              },
-                            ),
-                          ),
-                          if (selectedListId != null)
-                            IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.red),
-                              tooltip: 'Delete Pantry',
-                              onPressed: () => removePantry(selectedListId!),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton(
-                              onPressed: () => showCreatePantryDialog(userId),
-                              child: const Text('Create New Pantry'),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          if (selectedListId != null)
-                            Expanded(
-                              child: ElevatedButton(
-                                onPressed: () =>
-                                    showFriendShareDialog(context, selectedListId!),
-                                child: const Text('Share This List'),
-                              ),
-                            ),
-                        ],
-                      ),
-                      if (selectedListId != null) ...[
-                        const SizedBox(height: 8),
-                        SharedUsersList(
-                          listId: selectedListId!,
-                          collection: 'Pantries',
-                        ),
-                      ],
-                      const SizedBox(height: 12),
-                    ],
-                  ),
-                ),
-              ],
+        _buildHeader(userId),
+        if (selectedListId != null) _buildActionBar(),
+        if (selectedListId != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: SharedUsersList(
+                listId: selectedListId!,
+                collection: 'Pantries',
+              ),
             ),
           ),
+        const SizedBox(height: 8),
+        Expanded(
+          child:
+              selectedListId == null
+                  ? const SizedBox.shrink()
+                  : items.isEmpty
+                  ? _buildEmptyItemsState()
+                  : ReorderableListView(
+                    padding: const EdgeInsets.only(bottom: 24),
+                    onReorder: reorderItems,
+                    children: items
+                        .map((item) => _buildItemCard(item))
+                        .toList(growable: false),
+                  ),
         ),
-        if (selectedListId != null && selectedShoppingListId != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.shopping_cart),
-              label: const Text('Add Checked Items to Shopping List'),
-              onPressed: () async {
-                final checkedItems =
-                    items.where((item) => item['checked'] == true).toList();
-                if (checkedItems.isEmpty) {
-                  await showDialog<void>(
-                    context: context,
-                    builder: (context) => const AlertDialog(
-                      title: Text('Nothing selected'),
-                      content: Text('Please check items to move to the shopping list.'),
-                    ),
-                  );
-                  return;
-                }
-                await showMoveToShoppingListDialog();
-              },
-            ),
-          ),
-        const Divider(),
-        if (selectedListId != null)
-          Expanded(
-            child: ReorderableListView(
-              onReorder: reorderItems,
-              children: [
-                for (var index = 0; index < items.length; index++)
-                  buildItem(index, key: ValueKey(items[index]['id'])),
-              ],
-            ),
-          ),
-        if (selectedListId != null)
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                TextField(
-                  controller: _ghostController,
-                  focusNode: _ghostFocusNode,
-                  decoration: const InputDecoration(
-                    hintText: 'Add item...',
-                    border: OutlineInputBorder(),
-                    filled: true,
-                  ),
-                  onSubmitted: (value) {
-                    if (value.trim().isNotEmpty && selectedListId != null) {
-                      addItemToList(selectedListId!, value.trim());
-                      _ghostController.clear();
-                    }
-                    FocusScope.of(context).requestFocus(_ghostFocusNode);
-                  },
-                ),
-                const SizedBox(height: 8),
-                ElevatedButton(
-                  onPressed: () async {
-                    final selectedIngredients = items
-                        .where((item) => item['checked'] == true)
-                        .map<String>((item) => item['item']?.toString() ?? '')
-                        .where((value) => value.isNotEmpty)
-                        .toList();
-
-                    if (selectedIngredients.isEmpty) {
-                      await showDialog<void>(
-                        context: context,
-                        builder: (context) => const AlertDialog(
-                          title: Text('Nothing selected'),
-                          content: Text('Please check ingredients to send.'),
-                        ),
-                      );
-                      return;
-                    }
-
-                    if (!context.mounted) {
-                      return;
-                    }
-                    Navigator.pushNamed(
-                      context,
-                      '/ai',
-                      arguments: selectedIngredients,
-                    );
-                  },
-                  child: const Text('Send Selected Ingredients'),
-                ),
-              ],
-            ),
-          ),
       ],
     );
   }

@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:my_pantry/models/inventory_item.dart';
+import 'package:my_pantry/widgets/inventory_item_editor.dart';
+import 'package:my_pantry/widgets/item_fullness_icon.dart';
 import 'package:my_pantry/widgets/shared_users_list.dart';
 
 class ShoppingListPage extends StatefulWidget {
@@ -14,16 +17,11 @@ class ShoppingListPage extends StatefulWidget {
 
 class ShoppingListPageState extends State<ShoppingListPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final TextEditingController _ghostController = TextEditingController();
-  final FocusNode _ghostFocusNode = FocusNode();
-  final Map<String, TextEditingController> controllerMap =
-      <String, TextEditingController>{};
-
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _itemsSubscription;
 
   List<Map<String, dynamic>> shoppingLists = <Map<String, dynamic>>[];
+  List<InventoryItem> items = <InventoryItem>[];
   String? selectedListId;
-  List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
 
   String? get selectedListName {
     if (selectedListId == null) {
@@ -31,10 +29,12 @@ class ShoppingListPageState extends State<ShoppingListPage> {
     }
     final match = shoppingLists.where((list) => list['id'] == selectedListId);
     if (match.isEmpty) {
-      return '';
+      return null;
     }
     return (match.first['name'] ?? '').toString();
   }
+
+  int get checkedItemCount => items.where((item) => item.checked).length;
 
   @override
   void initState() {
@@ -70,12 +70,11 @@ class ShoppingListPageState extends State<ShoppingListPage> {
 
   Future<void> addUserToList(String listId, String userId) async {
     try {
-      await _firestore
-          .collection('shoppingLists')
-          .doc(listId)
-          .update(<String, dynamic>{
-        'sharedWith': FieldValue.arrayUnion(<String>[userId]),
-      });
+      await _firestore.collection('shoppingLists').doc(listId).update(
+        <String, dynamic>{
+          'sharedWith': FieldValue.arrayUnion(<String>[userId]),
+        },
+      );
       await fetchShoppingLists();
     } catch (e) {
       _showMessage('Error sharing list: $e', isError: true);
@@ -89,10 +88,11 @@ class ShoppingListPageState extends State<ShoppingListPage> {
     }
 
     try {
-      final snapshot = await _firestore
-          .collection('shoppingLists')
-          .where('sharedWith', arrayContains: user.uid)
-          .get();
+      final snapshot =
+          await _firestore
+              .collection('shoppingLists')
+              .where('sharedWith', arrayContains: user.uid)
+              .get();
 
       if (!mounted) {
         return;
@@ -100,27 +100,36 @@ class ShoppingListPageState extends State<ShoppingListPage> {
 
       setState(() {
         shoppingLists =
-            snapshot.docs.map((doc) => <String, dynamic>{'id': doc.id, ...doc.data()}).toList();
+            snapshot.docs
+                .map((doc) => <String, dynamic>{'id': doc.id, ...doc.data()})
+                .toList();
       });
 
-      if (shoppingLists.isNotEmpty) {
-        final exists = shoppingLists.any((list) => list['id'] == selectedListId);
-        if (!exists) {
-          final firstId = shoppingLists.first['id']?.toString();
-          setState(() {
-            selectedListId = firstId;
-          });
-          if (firstId != null) {
-            listenToItems(firstId);
-          }
-        }
-      } else {
-        _itemsSubscription?.cancel();
+      if (shoppingLists.isEmpty) {
+        await _itemsSubscription?.cancel();
         _itemsSubscription = null;
+        if (!mounted) {
+          return;
+        }
         setState(() {
           selectedListId = null;
-          items = <Map<String, dynamic>>[];
+          items = <InventoryItem>[];
         });
+        return;
+      }
+
+      final exists = shoppingLists.any((list) => list['id'] == selectedListId);
+      if (!exists) {
+        final firstId = shoppingLists.first['id']?.toString();
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          selectedListId = firstId;
+        });
+        if (firstId != null) {
+          listenToItems(firstId);
+        }
       }
     } catch (e) {
       _showMessage('Error loading shopping lists: $e', isError: true);
@@ -136,48 +145,98 @@ class ShoppingListPageState extends State<ShoppingListPage> {
         .orderBy('order')
         .snapshots()
         .listen(
-      (snapshot) {
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          items = snapshot.docs
-              .map((doc) => <String, dynamic>{'id': doc.id, ...doc.data()})
-              .toList();
-
-          for (final item in items) {
-            final id = item['id']?.toString();
-            if (id == null) {
-              continue;
+          (snapshot) {
+            if (!mounted) {
+              return;
             }
-            final text = item['item']?.toString() ?? '';
-            final existing = controllerMap[id];
-            if (existing == null) {
-              controllerMap[id] = TextEditingController(text: text);
-              continue;
+            setState(() {
+              items = snapshot.docs
+                  .map((doc) => InventoryItem.fromMap(doc.id, doc.data()))
+                  .toList(growable: false);
+            });
+          },
+          onError: (Object error) {
+            if (mounted) {
+              _showMessage(
+                'Error loading shopping items: $error',
+                isError: true,
+              );
             }
+          },
+        );
+  }
 
-            if (existing.text != text && existing.selection.isCollapsed) {
-              final oldSelection = existing.selection;
-              existing.text = text;
-              existing.selection = oldSelection;
-            }
-          }
+  Future<void> openAddItemSheet() async {
+    final listId = selectedListId;
+    if (listId == null) {
+      _showMessage('Create or select a shopping list first.', isError: true);
+      return;
+    }
 
-          final validIds = items.map((item) => item['id']?.toString()).toSet();
-          final staleIds =
-              controllerMap.keys.where((id) => !validIds.contains(id)).toList();
-          for (final id in staleIds) {
-            controllerMap.remove(id)?.dispose();
-          }
-        });
-      },
-      onError: (Object error) {
-        if (mounted) {
-          _showMessage('Error loading shopping items: $error', isError: true);
-        }
-      },
+    final draft = await showInventoryItemEditor(
+      context,
+      title: 'Add Shopping Item',
     );
+    if (draft == null) {
+      return;
+    }
+    await addItemToList(listId, draft);
+  }
+
+  Future<void> addItemToList(String listId, InventoryItemDraft draft) async {
+    try {
+      final item = InventoryItem(
+        id: '',
+        name: draft.name,
+        details: draft.details,
+        location: draft.location,
+        mealTags: draft.mealTags,
+        recipeTags: draft.recipeTags,
+        fullnessPercent: draft.fullnessPercent,
+        checked: false,
+        order: items.length,
+      );
+
+      await _firestore
+          .collection('shoppingLists')
+          .doc(listId)
+          .collection('items')
+          .add(item.toMap());
+    } catch (e) {
+      _showMessage('Error adding item: $e', isError: true);
+    }
+  }
+
+  Future<void> editItem(InventoryItem item) async {
+    final draft = await showInventoryItemEditor(
+      context,
+      title: 'Edit Shopping Item',
+      initialItem: item,
+    );
+    if (draft == null || selectedListId == null) {
+      return;
+    }
+
+    try {
+      final updated = item.copyWith(
+        name: draft.name,
+        details: draft.details,
+        location: draft.location,
+        mealTags: draft.mealTags,
+        recipeTags: draft.recipeTags,
+        fullnessPercent: draft.fullnessPercent,
+        clearFullnessPercent: draft.fullnessPercent == null,
+      );
+
+      await _firestore
+          .collection('shoppingLists')
+          .doc(selectedListId)
+          .collection('items')
+          .doc(item.id)
+          .update(updated.toMap());
+    } catch (e) {
+      _showMessage('Error updating item: $e', isError: true);
+    }
   }
 
   Future<void> reorderItems(int oldIndex, int newIndex) async {
@@ -194,22 +253,18 @@ class ShoppingListPageState extends State<ShoppingListPage> {
       newIndex -= 1;
     }
 
-    final reordered = <Map<String, dynamic>>[...items];
+    final reordered = <InventoryItem>[...items];
     final moved = reordered.removeAt(oldIndex);
     reordered.insert(newIndex, moved);
 
     try {
       final batch = _firestore.batch();
       for (var i = 0; i < reordered.length; i++) {
-        final itemId = reordered[i]['id']?.toString();
-        if (itemId == null) {
-          continue;
-        }
         final docRef = _firestore
             .collection('shoppingLists')
             .doc(listId)
             .collection('items')
-            .doc(itemId);
+            .doc(reordered[i].id);
         batch.update(docRef, <String, dynamic>{'order': i});
       }
       await batch.commit();
@@ -218,9 +273,9 @@ class ShoppingListPageState extends State<ShoppingListPage> {
     }
   }
 
-  Future<void> addItemToList(String listId, String itemName) async {
-    final value = itemName.trim();
-    if (value.isEmpty) {
+  Future<void> toggleCheck(InventoryItem item, bool newValue) async {
+    final listId = selectedListId;
+    if (listId == null) {
       return;
     }
 
@@ -229,67 +284,8 @@ class ShoppingListPageState extends State<ShoppingListPage> {
           .collection('shoppingLists')
           .doc(listId)
           .collection('items')
-          .add(<String, dynamic>{
-        'item': value,
-        'checked': false,
-        'order': items.length,
-      });
-    } catch (e) {
-      _showMessage('Error adding item: $e', isError: true);
-    }
-  }
-
-  Future<void> updateItem(String listId, int index, String newText) async {
-    if (index < 0 || index >= items.length) {
-      return;
-    }
-    final id = items[index]['id']?.toString();
-    if (id == null) {
-      return;
-    }
-
-    try {
-      await _firestore
-          .collection('shoppingLists')
-          .doc(listId)
-          .collection('items')
-          .doc(id)
-          .update(<String, dynamic>{'item': newText});
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        items[index]['item'] = newText;
-      });
-    } catch (e) {
-      _showMessage('Error updating item: $e', isError: true);
-    }
-  }
-
-  Future<void> toggleCheck(String listId, int index) async {
-    if (index < 0 || index >= items.length) {
-      return;
-    }
-    final id = items[index]['id']?.toString();
-    if (id == null) {
-      return;
-    }
-
-    final current = items[index]['checked'] == true;
-    final newValue = !current;
-    try {
-      await _firestore
-          .collection('shoppingLists')
-          .doc(listId)
-          .collection('items')
-          .doc(id)
+          .doc(item.id)
           .update(<String, dynamic>{'checked': newValue});
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        items[index]['checked'] = newValue;
-      });
     } catch (e) {
       _showMessage('Error updating checkbox: $e', isError: true);
     }
@@ -302,22 +298,28 @@ class ShoppingListPageState extends State<ShoppingListPage> {
       return;
     }
 
-    final checkedItems =
-        items.where((item) => item['checked'] == true).toList(growable: false);
+    final checkedItems = items
+        .where((item) => item.checked)
+        .toList(growable: false);
     if (checkedItems.isEmpty) {
-      _showMessage('No checked items selected.', isError: true);
+      _showMessage('Select items to move first.', isError: true);
       return;
     }
 
     try {
-      final pantrySnapshot = await _firestore
-          .collection('Pantries')
-          .where('sharedWith', arrayContains: user.uid)
-          .get();
+      final pantrySnapshot =
+          await _firestore
+              .collection('Pantries')
+              .where('sharedWith', arrayContains: user.uid)
+              .get();
       final pantryDocs = pantrySnapshot.docs;
 
       if (pantryDocs.isEmpty) {
         _showMessage('No pantries found.', isError: true);
+        return;
+      }
+
+      if (!mounted) {
         return;
       }
 
@@ -328,17 +330,20 @@ class ShoppingListPageState extends State<ShoppingListPage> {
           return StatefulBuilder(
             builder: (dialogContext, setDialogState) {
               return AlertDialog(
-                title: const Text('Select Pantry'),
+                title: const Text('Move To Pantry'),
                 content: DropdownButton<String>(
                   isExpanded: true,
                   value: selectedPantryId,
                   hint: const Text('Choose a pantry'),
-                  items: pantryDocs.map((doc) {
-                    return DropdownMenuItem<String>(
-                      value: doc.id,
-                      child: Text((doc.data()['name'] ?? 'Unnamed Pantry').toString()),
-                    );
-                  }).toList(),
+                  items:
+                      pantryDocs.map((doc) {
+                        return DropdownMenuItem<String>(
+                          value: doc.id,
+                          child: Text(
+                            (doc.data()['name'] ?? 'Unnamed Pantry').toString(),
+                          ),
+                        );
+                      }).toList(),
                   onChanged: (value) {
                     setDialogState(() {
                       selectedPantryId = value;
@@ -350,11 +355,12 @@ class ShoppingListPageState extends State<ShoppingListPage> {
                     onPressed: () => Navigator.of(dialogContext).pop(),
                     child: const Text('Cancel'),
                   ),
-                  ElevatedButton(
-                    onPressed: selectedPantryId == null
-                        ? null
-                        : () => Navigator.of(dialogContext).pop(),
-                    child: const Text('Move Items'),
+                  FilledButton(
+                    onPressed:
+                        selectedPantryId == null
+                            ? null
+                            : () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Move'),
                   ),
                 ],
               );
@@ -366,15 +372,15 @@ class ShoppingListPageState extends State<ShoppingListPage> {
       if (selectedPantryId == null) {
         return;
       }
-      final pantryId = selectedPantryId;
 
-      final pantryItemsSnapshot = await _firestore
-          .collection('Pantries')
-          .doc(pantryId)
-          .collection('items')
-          .orderBy('order', descending: true)
-          .limit(1)
-          .get();
+      final pantryItemsSnapshot =
+          await _firestore
+              .collection('Pantries')
+              .doc(selectedPantryId)
+              .collection('items')
+              .orderBy('order', descending: true)
+              .limit(1)
+              .get();
 
       var nextOrder = 0;
       if (pantryItemsSnapshot.docs.isNotEmpty) {
@@ -386,28 +392,23 @@ class ShoppingListPageState extends State<ShoppingListPage> {
 
       final batch = _firestore.batch();
       for (final item in checkedItems) {
-        final id = item['id']?.toString();
-        if (id == null) {
-          continue;
-        }
-
-        final pantryItemRef = _firestore
-            .collection('Pantries')
-            .doc(pantryId)
-            .collection('items')
-            .doc();
-        batch.set(pantryItemRef, <String, dynamic>{
-          'item': item['item']?.toString() ?? '',
-          'checked': false,
-          'order': nextOrder,
-        });
+        final pantryItemRef =
+            _firestore
+                .collection('Pantries')
+                .doc(selectedPantryId)
+                .collection('items')
+                .doc();
+        batch.set(
+          pantryItemRef,
+          item.copyWith(checked: false, order: nextOrder).toMap(),
+        );
         nextOrder += 1;
 
         final shoppingItemRef = _firestore
             .collection('shoppingLists')
             .doc(listId)
             .collection('items')
-            .doc(id);
+            .doc(item.id);
         batch.delete(shoppingItemRef);
       }
 
@@ -426,23 +427,48 @@ class ShoppingListPageState extends State<ShoppingListPage> {
           .collection('items')
           .doc(itemId)
           .delete();
-
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        final index = items.indexWhere((item) => item['id'] == itemId);
-        if (index != -1) {
-          items.removeAt(index);
-          controllerMap.remove(itemId)?.dispose();
-        }
-      });
     } catch (e) {
       _showMessage('Error deleting item: $e', isError: true);
     }
   }
 
-  Future<void> showFriendShareDialog(BuildContext context, String listId) async {
+  Future<void> showCreateShoppingListDialog(String userId) async {
+    final controller = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Create Shopping List'),
+          content: TextField(
+            controller: controller,
+            decoration: const InputDecoration(hintText: 'List name'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final value = controller.text.trim();
+                if (value.isNotEmpty) {
+                  createShoppingList(value, <String>[userId]);
+                }
+                Navigator.pop(dialogContext);
+              },
+              child: const Text('Create'),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+  }
+
+  Future<void> showFriendShareDialog(
+    BuildContext context,
+    String listId,
+  ) async {
     final currentUid = FirebaseAuth.instance.currentUser?.uid;
     if (currentUid == null) {
       _showMessage('You must be signed in to share lists.', isError: true);
@@ -451,16 +477,27 @@ class ShoppingListPageState extends State<ShoppingListPage> {
 
     try {
       final userDoc =
-          await FirebaseFirestore.instance.collection('users').doc(currentUid).get();
-      final friendIds = List<String>.from(userDoc.data()?['friends'] ?? <String>[]);
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(currentUid)
+              .get();
+      final friendIds = List<String>.from(
+        userDoc.data()?['friends'] ?? <String>[],
+      );
       if (friendIds.isEmpty) {
         _showMessage('No friends found to share with.', isError: true);
         return;
       }
 
       final friendNameResults = await Future.wait(
-        friendIds.map((id) => FirebaseFirestore.instance.collection('users').doc(id).get()),
+        friendIds.map(
+          (id) => FirebaseFirestore.instance.collection('users').doc(id).get(),
+        ),
       );
+
+      if (!context.mounted) {
+        return;
+      }
 
       final friendNames = <String, String>{};
       for (final doc in friendNameResults) {
@@ -476,24 +513,25 @@ class ShoppingListPageState extends State<ShoppingListPage> {
           return StatefulBuilder(
             builder: (dialogContext, setDialogState) {
               return AlertDialog(
-                title: const Text('Share List With Friends'),
+                title: const Text('Share Shopping List'),
                 content: SingleChildScrollView(
                   child: Column(
-                    children: friendIds.map((id) {
-                      return CheckboxListTile(
-                        value: selected.contains(id),
-                        title: Text(friendNames[id] ?? id),
-                        onChanged: (bool? value) {
-                          setDialogState(() {
-                            if (value == true) {
-                              selected.add(id);
-                            } else {
-                              selected.remove(id);
-                            }
-                          });
-                        },
-                      );
-                    }).toList(),
+                    children:
+                        friendIds.map((id) {
+                          return CheckboxListTile(
+                            value: selected.contains(id),
+                            title: Text(friendNames[id] ?? id),
+                            onChanged: (bool? value) {
+                              setDialogState(() {
+                                if (value == true) {
+                                  selected.add(id);
+                                } else {
+                                  selected.remove(id);
+                                }
+                              });
+                            },
+                          );
+                        }).toList(),
                   ),
                 ),
                 actions: [
@@ -501,20 +539,21 @@ class ShoppingListPageState extends State<ShoppingListPage> {
                     onPressed: () => Navigator.pop(dialogContext),
                     child: const Text('Cancel'),
                   ),
-                  ElevatedButton(
-                    onPressed: selected.isEmpty
-                        ? null
-                        : () async {
-                            for (final uid in selected) {
-                              await addUserToList(listId, uid);
-                            }
-                            if (dialogContext.mounted) {
-                              Navigator.pop(dialogContext);
-                            }
-                            _showMessage(
-                              'List shared with ${selected.length} friend(s).',
-                            );
-                          },
+                  FilledButton(
+                    onPressed:
+                        selected.isEmpty
+                            ? null
+                            : () async {
+                              for (final uid in selected) {
+                                await addUserToList(listId, uid);
+                              }
+                              if (dialogContext.mounted) {
+                                Navigator.pop(dialogContext);
+                              }
+                              _showMessage(
+                                'Shopping list shared with ${selected.length} friend(s).',
+                              );
+                            },
                     child: const Text('Share'),
                   ),
                 ],
@@ -531,75 +570,204 @@ class ShoppingListPageState extends State<ShoppingListPage> {
   @override
   void dispose() {
     _itemsSubscription?.cancel();
-    _ghostController.dispose();
-    _ghostFocusNode.dispose();
-    for (final controller in controllerMap.values) {
-      controller.dispose();
-    }
     super.dispose();
   }
 
-  Widget buildItem(int index, {required Key key}) {
-    final item = items[index];
-    final itemId = item['id']?.toString();
-    if (itemId == null) {
-      return const SizedBox.shrink();
-    }
-
-    final controller = controllerMap[itemId];
-    if (controller == null) {
-      return const SizedBox.shrink();
-    }
-
+  Widget _buildItemCard(InventoryItem item) {
     return Dismissible(
-      key: key,
+      key: ValueKey(item.id),
       direction: DismissDirection.endToStart,
       background: Container(
-        color: Colors.red,
-        alignment: Alignment.centerRight,
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: const Icon(Icons.delete, color: Colors.white),
+        decoration: BoxDecoration(
+          color: Colors.red.shade400,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        alignment: Alignment.centerRight,
+        child: const Icon(Icons.delete_outline, color: Colors.white),
       ),
       onDismissed: (_) {
         if (selectedListId != null) {
-          removeItemById(selectedListId!, itemId);
+          removeItemById(selectedListId!, item.id);
         }
       },
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor.withOpacity(0.9),
-          borderRadius: BorderRadius.circular(8),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.white.withOpacity(0.3),
-              blurRadius: 12,
-              spreadRadius: 1,
+      child: Card(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 6,
+          ),
+          onTap: () => editItem(item),
+          leading: Checkbox(
+            value: item.checked,
+            onChanged: (value) => toggleCheck(item, value ?? false),
+          ),
+          title: Text(
+            item.displayName,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              decoration: item.checked ? TextDecoration.lineThrough : null,
             ),
+          ),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (item.details.trim().isNotEmpty) Text(item.details.trim()),
+                if (item.summaryChips.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: item.summaryChips
+                        .map((chip) => Chip(label: Text(chip)))
+                        .toList(growable: false),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ItemFullnessIcon(fullnessPercent: item.fullnessPercent),
+              const SizedBox(width: 8),
+              const Icon(Icons.edit_outlined),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(String userId) {
+    return Card(
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Shopping', style: Theme.of(context).textTheme.headlineSmall),
+            const SizedBox(height: 6),
+            Text(
+              'Track what you need next and move it back into the pantry when stocked.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            if (shoppingLists.isEmpty)
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => showCreateShoppingListDialog(userId),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Create Your First Shopping List'),
+                ),
+              )
+            else ...[
+              DropdownButtonFormField<String>(
+                initialValue: selectedListId,
+                decoration: const InputDecoration(
+                  labelText: 'Current shopping list',
+                  border: OutlineInputBorder(),
+                ),
+                items: shoppingLists
+                    .map((list) {
+                      return DropdownMenuItem<String>(
+                        value: list['id']?.toString(),
+                        child: Text(
+                          (list['name'] ?? 'Unnamed List').toString(),
+                        ),
+                      );
+                    })
+                    .toList(growable: false),
+                onChanged: (value) {
+                  setState(() {
+                    selectedListId = value;
+                  });
+                  if (value != null) {
+                    listenToItems(value);
+                  }
+                },
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilledButton.icon(
+                    onPressed: openAddItemSheet,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add Item'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => showCreateShoppingListDialog(userId),
+                    icon: const Icon(Icons.playlist_add_outlined),
+                    label: const Text('New List'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed:
+                        selectedListId == null
+                            ? null
+                            : () =>
+                                showFriendShareDialog(context, selectedListId!),
+                    icon: const Icon(Icons.group_outlined),
+                    label: const Text('Share'),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
-        child: ListTile(
-          leading: Checkbox(
-            value: item['checked'] == true,
-            onChanged: (_) {
-              if (selectedListId != null) {
-                toggleCheck(selectedListId!, index);
-              }
-            },
+      ),
+    );
+  }
+
+  Widget _buildActionBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          FilledButton.tonalIcon(
+            onPressed: checkedItemCount == 0 ? null : moveCheckedItemsToPantry,
+            icon: const Icon(Icons.move_to_inbox_outlined),
+            label: Text('Move Checked ($checkedItemCount)'),
           ),
-          title: TextField(
-            controller: controller,
-            decoration: const InputDecoration(
-              border: InputBorder.none,
-              hintText: 'Item',
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyItemsState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.shopping_cart_outlined, size: 56),
+            const SizedBox(height: 12),
+            Text(
+              'No shopping items yet',
+              style: Theme.of(context).textTheme.titleLarge,
             ),
-            onChanged: (value) {
-              if (selectedListId != null) {
-                updateItem(selectedListId!, index, value);
-              }
-            },
-          ),
-          trailing: const Icon(Icons.drag_handle),
+            const SizedBox(height: 8),
+            const Text(
+              'Add items with enough detail that anyone can shop correctly.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: openAddItemSheet,
+              icon: const Icon(Icons.add),
+              label: const Text('Add First Item'),
+            ),
+          ],
         ),
       ),
     );
@@ -614,135 +782,31 @@ class ShoppingListPageState extends State<ShoppingListPage> {
 
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          child: Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: ExpansionTile(
-              title: const Text('Manage Shopping List'),
-              initiallyExpanded: false,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (shoppingLists.isNotEmpty)
-                        DropdownButton<String>(
-                          value: selectedListId,
-                          hint: const Text('Select a list'),
-                          isExpanded: true,
-                          items: shoppingLists.map((list) {
-                            return DropdownMenuItem<String>(
-                              value: list['id']?.toString(),
-                              child: Text((list['name'] ?? 'Unnamed List').toString()),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            setState(() {
-                              selectedListId = value;
-                            });
-                            if (value != null) {
-                              listenToItems(value);
-                            }
-                          },
-                        ),
-                      const SizedBox(height: 8),
-                      ElevatedButton(
-                        onPressed: () async {
-                          final controller = TextEditingController();
-                          await showDialog<void>(
-                            context: context,
-                            builder: (dialogContext) {
-                              return AlertDialog(
-                                title: const Text('Create Shopping List'),
-                                content: TextField(
-                                  controller: controller,
-                                  decoration:
-                                      const InputDecoration(hintText: 'List name'),
-                                ),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(dialogContext),
-                                    child: const Text('Cancel'),
-                                  ),
-                                  TextButton(
-                                    onPressed: () {
-                                      final value = controller.text.trim();
-                                      if (value.isNotEmpty) {
-                                        createShoppingList(value, <String>[userId]);
-                                      }
-                                      Navigator.pop(dialogContext);
-                                    },
-                                    child: const Text('Create'),
-                                  ),
-                                ],
-                              );
-                            },
-                          );
-                          controller.dispose();
-                        },
-                        child: const Text('Create New List'),
-                      ),
-                      const SizedBox(height: 8),
-                      if (selectedListId != null) ...[
-                        ElevatedButton(
-                          onPressed: () =>
-                              showFriendShareDialog(context, selectedListId!),
-                          child: const Text('Share This List'),
-                        ),
-                        const SizedBox(height: 8),
-                        SharedUsersList(listId: selectedListId!),
-                      ],
-                      const SizedBox(height: 12),
-                    ],
+        _buildHeader(userId),
+        if (selectedListId != null) _buildActionBar(),
+        if (selectedListId != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: SharedUsersList(listId: selectedListId!),
+            ),
+          ),
+        const SizedBox(height: 8),
+        Expanded(
+          child:
+              selectedListId == null
+                  ? const SizedBox.shrink()
+                  : items.isEmpty
+                  ? _buildEmptyItemsState()
+                  : ReorderableListView(
+                    padding: const EdgeInsets.only(bottom: 24),
+                    onReorder: reorderItems,
+                    children: items
+                        .map((item) => _buildItemCard(item))
+                        .toList(growable: false),
                   ),
-                ),
-              ],
-            ),
-          ),
         ),
-        if (selectedListId != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: ElevatedButton.icon(
-              onPressed: moveCheckedItemsToPantry,
-              icon: const Icon(Icons.move_to_inbox),
-              label: const Text('Add Checked Items to Pantry'),
-            ),
-          ),
-        const Divider(),
-        if (selectedListId != null)
-          Expanded(
-            child: ReorderableListView(
-              onReorder: reorderItems,
-              children: [
-                for (var index = 0; index < items.length; index++)
-                  buildItem(index, key: ValueKey(items[index]['id'])),
-              ],
-            ),
-          ),
-        if (selectedListId != null)
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: TextField(
-              controller: _ghostController,
-              focusNode: _ghostFocusNode,
-              decoration: const InputDecoration(
-                hintText: 'Add item...',
-                border: OutlineInputBorder(),
-                filled: true,
-              ),
-              onSubmitted: (value) {
-                if (selectedListId != null && value.trim().isNotEmpty) {
-                  addItemToList(selectedListId!, value.trim());
-                  _ghostController.clear();
-                }
-                FocusScope.of(context).requestFocus(_ghostFocusNode);
-              },
-            ),
-          ),
       ],
     );
   }

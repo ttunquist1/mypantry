@@ -14,10 +14,11 @@ class SharedUsersList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection(collection)
-          .doc(listId)
-          .snapshots(),
+      stream:
+          FirebaseFirestore.instance
+              .collection(collection)
+              .doc(listId)
+              .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const CircularProgressIndicator();
@@ -45,77 +46,99 @@ class SharedUsersList extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 4),
-            ...sharedUids.map((uid) {
-              return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                future: FirebaseFirestore.instance.collection('users').doc(uid).get(),
-                builder: (context, userSnapshot) {
-                  if (userSnapshot.connectionState == ConnectionState.waiting) {
-                    return const ListTile(title: Text('Loading...'));
-                  }
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children:
+                  sharedUids.map((uid) {
+                    return FutureBuilder<
+                      DocumentSnapshot<Map<String, dynamic>>
+                    >(
+                      future:
+                          FirebaseFirestore.instance
+                              .collection('users')
+                              .doc(uid)
+                              .get(),
+                      builder: (context, userSnapshot) {
+                        if (userSnapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Chip(label: Text('Loading...'));
+                        }
 
-                  final userData = userSnapshot.data?.data();
-                  final name = (userData?['name'] ?? uid).toString();
+                        final userData = userSnapshot.data?.data();
+                        final name = (userData?['name'] ?? uid).toString();
 
-                  return ListTile(
-                    dense: true,
-                    title: Text(name),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.remove_circle, color: Colors.red),
-                      onPressed: () async {
-                        final confirm = await showDialog<bool>(
-                          context: context,
-                          builder: (dialogContext) {
-                            return AlertDialog(
-                              title: const Text('Remove Access?'),
-                              content: Text('Remove "$name" from shared list?'),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(dialogContext, false),
-                                  child: const Text('Cancel'),
-                                ),
-                                TextButton(
-                                  onPressed: () => Navigator.pop(dialogContext, true),
-                                  child: const Text('Remove'),
-                                ),
-                              ],
+                        return InputChip(
+                          label: Text(name),
+                          onDeleted: () async {
+                            final confirm = await showDialog<bool>(
+                              context: context,
+                              builder: (dialogContext) {
+                                return AlertDialog(
+                                  title: const Text('Remove Access?'),
+                                  content: Text(
+                                    'Remove "$name" from shared list?',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed:
+                                          () => Navigator.pop(
+                                            dialogContext,
+                                            false,
+                                          ),
+                                      child: const Text('Cancel'),
+                                    ),
+                                    TextButton(
+                                      onPressed:
+                                          () => Navigator.pop(
+                                            dialogContext,
+                                            true,
+                                          ),
+                                      child: const Text('Remove'),
+                                    ),
+                                  ],
+                                );
+                              },
                             );
+
+                            if (confirm != true) {
+                              return;
+                            }
+
+                            try {
+                              await FirebaseFirestore.instance
+                                  .collection(collection)
+                                  .doc(listId)
+                                  .update(<String, dynamic>{
+                                    'sharedWith': FieldValue.arrayRemove(
+                                      <String>[uid],
+                                    ),
+                                  });
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      '$name removed from shared list.',
+                                    ),
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Unable to remove user: $e'),
+                                    backgroundColor: Colors.red.shade700,
+                                  ),
+                                );
+                              }
+                            }
                           },
                         );
-
-                        if (confirm != true) {
-                          return;
-                        }
-
-                        try {
-                          await FirebaseFirestore.instance
-                              .collection(collection)
-                              .doc(listId)
-                              .update(<String, dynamic>{
-                            'sharedWith': FieldValue.arrayRemove(<String>[uid]),
-                          });
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('$name removed from shared list.'),
-                              ),
-                            );
-                          }
-                        } catch (e) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Unable to remove user: $e'),
-                                backgroundColor: Colors.red.shade700,
-                              ),
-                            );
-                          }
-                        }
                       },
-                    ),
-                  );
-                },
-              );
-            }),
+                    );
+                  }).toList(),
+            ),
           ],
         );
       },

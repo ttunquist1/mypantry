@@ -71,26 +71,38 @@ class _MyPantryAppState extends State<MyPantryApp> {
       debugShowCheckedModeBanner: false,
       themeMode: _themeMode,
       theme: ThemeData(
-        brightness: Brightness.light,
-        primarySwatch: Colors.blue,
-        primaryColor: const Color.fromARGB(255, 255, 151, 151),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFFBF5F36),
+          brightness: Brightness.light,
+        ),
+        scaffoldBackgroundColor: const Color(0xFFF7F1EA),
+        cardTheme: const CardThemeData(elevation: 1, margin: EdgeInsets.zero),
+        appBarTheme: const AppBarTheme(centerTitle: false),
+        inputDecorationTheme: const InputDecorationTheme(
+          filled: true,
+          border: OutlineInputBorder(),
+        ),
+        navigationBarTheme: const NavigationBarThemeData(
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         ),
       ),
       darkTheme: ThemeData(
-        brightness: Brightness.dark,
-        primarySwatch: Colors.blue,
-        primaryColor: const Color.fromARGB(255, 128, 17, 17),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.black,
-          foregroundColor: Colors.white,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFFBF5F36),
+          brightness: Brightness.dark,
+        ),
+        inputDecorationTheme: const InputDecorationTheme(
+          filled: true,
+          border: OutlineInputBorder(),
+        ),
+        navigationBarTheme: const NavigationBarThemeData(
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         ),
       ),
-      home: widget.startupError == null
-          ? const AuthWrapper()
-          : StartupErrorPage(message: widget.startupError!),
+      home:
+          widget.startupError == null
+              ? const AuthWrapper()
+              : StartupErrorPage(message: widget.startupError!),
       routes: {
         '/friends': (context) => const FriendsPage(),
         '/sign_in': (context) => const SignInPage(),
@@ -145,7 +157,11 @@ class StartupErrorPage extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline, size: 56, color: Colors.redAccent),
+              const Icon(
+                Icons.error_outline,
+                size: 56,
+                color: Colors.redAccent,
+              ),
               const SizedBox(height: 12),
               const Text(
                 'Startup error',

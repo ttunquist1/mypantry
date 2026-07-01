@@ -35,10 +35,8 @@ class _SignUpPageState extends State<SignUpPage> {
     });
 
     try {
-      final userCred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
+      final userCred = await FirebaseAuth.instance
+          .createUserWithEmailAndPassword(email: email, password: password);
 
       final user = userCred.user;
       if (user == null) {
@@ -54,7 +52,8 @@ class _SignUpPageState extends State<SignUpPage> {
         'createdAt': FieldValue.serverTimestamp(),
         'friends': <String>[],
         'pantrySharingWith': <String>[],
-        'friendCode': user.uid.length >= 6 ? user.uid.substring(0, 6) : user.uid,
+        'friendCode':
+            user.uid.length >= 6 ? user.uid.substring(0, 6) : user.uid,
       });
 
       if (!mounted) {
@@ -62,7 +61,11 @@ class _SignUpPageState extends State<SignUpPage> {
       }
 
       _showMessage('Sign up successful!');
-      Navigator.pushNamedAndRemoveUntil(context, '/homepager', (route) => false);
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/homepager',
+        (route) => false,
+      );
     } on FirebaseAuthException catch (e) {
       _showMessage(e.message ?? 'Unable to sign up.');
     } catch (e) {
@@ -77,7 +80,9 @@ class _SignUpPageState extends State<SignUpPage> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -118,13 +123,14 @@ class _SignUpPageState extends State<SignUpPage> {
             const SizedBox(height: 20),
             ElevatedButton(
               onPressed: _isSubmitting ? null : _signUp,
-              child: _isSubmitting
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Sign Up'),
+              child:
+                  _isSubmitting
+                      ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : const Text('Sign Up'),
             ),
             TextButton(
               onPressed: () {

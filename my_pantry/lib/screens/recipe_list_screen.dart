@@ -31,7 +31,8 @@ class _RecipeListScreenState extends State<RecipeListScreen> {
     _hasLoaded = true;
 
     final args = ModalRoute.of(context)?.settings.arguments;
-    _ingredients = args is List ? args.whereType<String>().toList() : <String>[];
+    _ingredients =
+        args is List ? args.whereType<String>().toList() : <String>[];
     _loadRecipes();
   }
 
@@ -44,15 +45,17 @@ class _RecipeListScreenState extends State<RecipeListScreen> {
 
     if (_ingredients.isEmpty) {
       setState(() {
-        _errorMessage = 'Select ingredients in Pantry first, then send them here.';
+        _errorMessage =
+            'Select ingredients in Pantry first, then send them here.';
         _isLoading = false;
       });
       return;
     }
 
     try {
-      final jsonResponse =
-          await _apiService.fetchRecipesFromOllamaPersistent(_ingredients);
+      final jsonResponse = await _apiService.fetchRecipesFromOllamaPersistent(
+        _ingredients,
+      );
       final parsedRecipes = RecipeParser.parseRecipesFromJson(jsonResponse);
 
       if (!mounted) {
@@ -83,10 +86,7 @@ class _RecipeListScreenState extends State<RecipeListScreen> {
       appBar: AppBar(
         title: const Text('Weekly Meal Plan'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadRecipes,
-          ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadRecipes),
         ],
       ),
       endDrawer: const AppDrawer(),

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
@@ -8,20 +10,51 @@ class QRScannerPage extends StatefulWidget {
   State<QRScannerPage> createState() => _QRScannerPageState();
 }
 
-class _QRScannerPageState extends State<QRScannerPage> {
+class _QRScannerPageState extends State<QRScannerPage>
+    with WidgetsBindingObserver {
   late final MobileScannerController _scannerController;
+  StreamSubscription<BarcodeCapture>? _barcodeSubscription;
   bool _didReturnCode = false;
 
   @override
   void initState() {
     super.initState();
-    _scannerController = MobileScannerController();
+    WidgetsBinding.instance.addObserver(this);
+    _scannerController = MobileScannerController(autoStart: false);
+    _barcodeSubscription = _scannerController.barcodes.listen(_handleDetection);
+    unawaited(_scannerController.start());
   }
 
   @override
   void dispose() {
-    _scannerController.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(_barcodeSubscription?.cancel());
+    _barcodeSubscription = null;
+    unawaited(_scannerController.dispose());
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!_scannerController.value.hasCameraPermission || _didReturnCode) {
+      return;
+    }
+
+    switch (state) {
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+        return;
+      case AppLifecycleState.resumed:
+        _barcodeSubscription ??= _scannerController.barcodes.listen(
+          _handleDetection,
+        );
+        unawaited(_scannerController.start());
+      case AppLifecycleState.inactive:
+        unawaited(_barcodeSubscription?.cancel());
+        _barcodeSubscription = null;
+        unawaited(_scannerController.stop());
+    }
   }
 
   Future<void> _handleDetection(BarcodeCapture capture) async {

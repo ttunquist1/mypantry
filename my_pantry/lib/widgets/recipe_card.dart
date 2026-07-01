@@ -18,7 +18,9 @@ class RecipeCard extends StatelessWidget {
           children: <Widget>[
             Text(
               '${recipe.day}: ${recipe.name}',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8.0),
             Row(
@@ -39,14 +41,18 @@ class RecipeCard extends StatelessWidget {
             const SizedBox(height: 12.0),
             Text(
               'Ingredients:',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 4.0),
             Text(recipe.ingredients.join(', ')),
             const SizedBox(height: 12.0),
             Text(
               'Instructions:',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 4.0),
             Text(recipe.instructions),

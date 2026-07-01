@@ -42,7 +42,11 @@ class _SignInPageState extends State<SignInPage> {
       }
 
       _showMessage('Signed in successfully!');
-      Navigator.pushNamedAndRemoveUntil(context, '/homepager', (route) => false);
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/homepager',
+        (route) => false,
+      );
     } on FirebaseAuthException catch (e) {
       _showMessage(e.message ?? 'Unable to sign in.');
     } catch (e) {
@@ -57,7 +61,9 @@ class _SignInPageState extends State<SignInPage> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -103,13 +109,14 @@ class _SignInPageState extends State<SignInPage> {
             const SizedBox(height: 20),
             ElevatedButton(
               onPressed: _isSubmitting ? null : _signIn,
-              child: _isSubmitting
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Sign In'),
+              child:
+                  _isSubmitting
+                      ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : const Text('Sign In'),
             ),
             TextButton(
               onPressed: () {

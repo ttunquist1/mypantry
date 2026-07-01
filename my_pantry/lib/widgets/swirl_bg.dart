@@ -7,19 +7,20 @@ class SwirlBackground extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    final swirlColors = isDark
-        ? const [
-            Color.fromARGB(255, 128, 17, 17),
-            Color.fromARGB(255, 0, 24, 145),
-            Color.fromARGB(255, 193, 91, 2),
-            Color.fromARGB(255, 128, 17, 17),
-          ]
-        : const [
-            Color.fromARGB(255, 255, 151, 151),
-            Color.fromARGB(255, 156, 172, 255),
-            Color.fromARGB(255, 232, 179, 132),
-            Color.fromARGB(255, 255, 151, 151),
-          ];
+    final swirlColors =
+        isDark
+            ? const [
+              Color.fromARGB(255, 128, 17, 17),
+              Color.fromARGB(255, 0, 24, 145),
+              Color.fromARGB(255, 193, 91, 2),
+              Color.fromARGB(255, 128, 17, 17),
+            ]
+            : const [
+              Color.fromARGB(255, 255, 151, 151),
+              Color.fromARGB(255, 156, 172, 255),
+              Color.fromARGB(255, 232, 179, 132),
+              Color.fromARGB(255, 255, 151, 151),
+            ];
 
     return Container(
       decoration: BoxDecoration(

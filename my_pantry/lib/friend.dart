@@ -61,7 +61,9 @@ class _FriendsPageState extends State<FriendsPage> {
     try {
       final batch = FirebaseFirestore.instance.batch();
       final myRef = FirebaseFirestore.instance.collection('users').doc(uid);
-      final theirRef = FirebaseFirestore.instance.collection('users').doc(friendId);
+      final theirRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(friendId);
 
       batch.update(myRef, <String, dynamic>{
         'friends': FieldValue.arrayRemove(<String>[friendId]),
@@ -77,7 +79,8 @@ class _FriendsPageState extends State<FriendsPage> {
   }
 
   Future<String> _getFriendName(String uid) async {
-    final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    final doc =
+        await FirebaseFirestore.instance.collection('users').doc(uid).get();
     return (doc.data()?['name'] ?? uid).toString();
   }
 
@@ -88,11 +91,12 @@ class _FriendsPageState extends State<FriendsPage> {
     }
 
     try {
-      final result = await FirebaseFirestore.instance
-          .collection('users')
-          .where('friendCode', isEqualTo: friendCode.trim())
-          .limit(1)
-          .get();
+      final result =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .where('friendCode', isEqualTo: friendCode.trim())
+              .limit(1)
+              .get();
 
       if (result.docs.isEmpty) {
         _showMessage('Friend code not found.', isError: true);
@@ -132,7 +136,9 @@ class _FriendsPageState extends State<FriendsPage> {
     try {
       final batch = FirebaseFirestore.instance.batch();
       final myDoc = FirebaseFirestore.instance.collection('users').doc(uid);
-      final friendDoc = FirebaseFirestore.instance.collection('users').doc(requesterId);
+      final friendDoc = FirebaseFirestore.instance
+          .collection('users')
+          .doc(requesterId);
       final requestDoc = myDoc.collection('friendRequests').doc(requesterId);
 
       batch.update(myDoc, <String, dynamic>{
@@ -170,12 +176,13 @@ class _FriendsPageState extends State<FriendsPage> {
             ),
             const SizedBox(height: 8),
             StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .collection('users')
-                  .doc(uid)
-                  .collection('friendRequests')
-                  .orderBy('timestamp', descending: true)
-                  .snapshots(),
+              stream:
+                  FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(uid)
+                      .collection('friendRequests')
+                      .orderBy('timestamp', descending: true)
+                      .snapshots(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) {
                   return const CircularProgressIndicator();
@@ -202,12 +209,14 @@ class _FriendsPageState extends State<FriendsPage> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               ElevatedButton(
-                                onPressed: () => acceptFriendRequest(requesterId),
+                                onPressed:
+                                    () => acceptFriendRequest(requesterId),
                                 child: const Text('Accept'),
                               ),
                               const SizedBox(width: 8),
                               TextButton(
-                                onPressed: () => declineFriendRequest(requesterId),
+                                onPressed:
+                                    () => declineFriendRequest(requesterId),
                                 child: const Text('Decline'),
                               ),
                             ],
@@ -226,17 +235,19 @@ class _FriendsPageState extends State<FriendsPage> {
             ),
             const SizedBox(height: 8),
             StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .collection('users')
-                  .doc(uid)
-                  .snapshots(),
+              stream:
+                  FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(uid)
+                      .snapshots(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) {
                   return const CircularProgressIndicator();
                 }
 
-                final friendIds =
-                    List<String>.from(snapshot.data!.data()?['friends'] ?? <String>[]);
+                final friendIds = List<String>.from(
+                  snapshot.data!.data()?['friends'] ?? <String>[],
+                );
                 if (friendIds.isEmpty) {
                   return const Text('No friends yet');
                 }
@@ -275,8 +286,9 @@ class _FriendsPageState extends State<FriendsPage> {
                 Expanded(
                   child: TextField(
                     controller: friendCodeController,
-                    decoration:
-                        const InputDecoration(labelText: 'Enter Friend Code'),
+                    decoration: const InputDecoration(
+                      labelText: 'Enter Friend Code',
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),

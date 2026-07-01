@@ -19,9 +19,12 @@ class RecipeParser {
       }
 
       final ingredientData = recipeData['ingredients'];
-      final ingredients = ingredientData is List
-          ? ingredientData.map((ingredient) => ingredient.toString()).toList()
-          : <String>[];
+      final ingredients =
+          ingredientData is List
+              ? ingredientData
+                  .map((ingredient) => ingredient.toString())
+                  .toList()
+              : <String>[];
 
       recipes.add(
         Recipe(

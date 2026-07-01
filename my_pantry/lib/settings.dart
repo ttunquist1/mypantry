@@ -32,7 +32,9 @@ class SettingsPage extends StatelessWidget {
             title: const Text('About'),
             onTap: () {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('About functionality coming soon.')),
+                const SnackBar(
+                  content: Text('About functionality coming soon.'),
+                ),
               );
             },
           ),

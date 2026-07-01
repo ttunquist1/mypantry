@@ -2,21 +2,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class AppDrawer extends StatelessWidget {
-  const AppDrawer({super.key, this.pageController});
-
-  final PageController? pageController;
+  const AppDrawer({super.key});
 
   void _navigateToPage(BuildContext context, int page) {
-    if (pageController != null) {
-      Navigator.pop(context);
-      pageController!.animateToPage(
-        page,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
-      return;
-    }
-
     Navigator.pushNamedAndRemoveUntil(
       context,
       '/homepager',
@@ -44,7 +32,7 @@ class AppDrawer extends StatelessWidget {
             onTap: () => _navigateToPage(context, 1),
           ),
           ListTile(
-            title: const Text('Recipe'),
+            title: const Text('Recipes'),
             onTap: () {
               Navigator.pop(context);
               Navigator.pushReplacementNamed(
